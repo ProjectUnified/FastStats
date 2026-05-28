@@ -8,22 +8,22 @@ import java.util.Map;
 /**
  * An implementation of {@link JsonSerializer} that uses Google Gson.
  */
-public class GsonJsonSerializer implements JsonSerializer {
+public class GsonSerializer implements JsonSerializer {
     private final Gson gson;
 
     /**
-     * Constructs a new {@link GsonJsonSerializer} with a default {@link Gson} instance.
+     * Constructs a new {@link GsonSerializer} with a default {@link Gson} instance.
      */
-    public GsonJsonSerializer() {
+    public GsonSerializer() {
         this(new Gson());
     }
 
     /**
-     * Constructs a new {@link GsonJsonSerializer} with the specified {@link Gson} instance.
+     * Constructs a new {@link GsonSerializer} with the specified {@link Gson} instance.
      *
      * @param gson the Gson instance to use
      */
-    public GsonJsonSerializer(Gson gson) {
+    public GsonSerializer(Gson gson) {
         this.gson = gson;
     }
 

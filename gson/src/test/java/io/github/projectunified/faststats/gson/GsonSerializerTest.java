@@ -7,11 +7,11 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class GsonJsonSerializerTest {
+public class GsonSerializerTest {
 
     @Test
     public void testSerialize() throws Exception {
-        GsonJsonSerializer serializer = new GsonJsonSerializer();
+        GsonSerializer serializer = new GsonSerializer();
 
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", "test");

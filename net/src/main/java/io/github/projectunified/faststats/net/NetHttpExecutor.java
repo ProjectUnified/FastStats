@@ -1,4 +1,4 @@
-package io.github.projectunified.faststats.java8;
+package io.github.projectunified.faststats.net;
 
 import io.github.projectunified.faststats.core.HttpExecutor;
 
@@ -13,19 +13,19 @@ import java.util.zip.GZIPOutputStream;
  * Implementation of {@link HttpExecutor} that uses {@link HttpURLConnection}
  * to submit GZIP-compressed telemetry payloads.
  */
-public class Java8HttpExecutor implements HttpExecutor {
+public class NetHttpExecutor implements HttpExecutor {
     private final URL url;
     private final String token;
     private final String userAgent;
 
     /**
-     * Constructs a new {@link Java8HttpExecutor}.
+     * Constructs a new {@link NetHttpExecutor}.
      *
      * @param url       the target metrics URL
      * @param token     the authorization token (bearer)
      * @param userAgent the user agent header value
      */
-    public Java8HttpExecutor(URL url, String token, String userAgent) {
+    public NetHttpExecutor(URL url, String token, String userAgent) {
         this.url = url;
         this.token = token;
         this.userAgent = userAgent;

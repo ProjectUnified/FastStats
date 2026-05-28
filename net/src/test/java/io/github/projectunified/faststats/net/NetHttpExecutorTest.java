@@ -1,7 +1,5 @@
-package io.github.projectunified.faststats.java8;
+package io.github.projectunified.faststats.net;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +15,7 @@ import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class Java8HttpExecutorTest {
+public class NetHttpExecutorTest {
 
     private HttpServer server;
     private int port;
@@ -64,7 +62,7 @@ public class Java8HttpExecutorTest {
     @Test
     public void testSuccessfulExecution() throws Exception {
         URL url = new URL("http://localhost:" + port + "/collect");
-        Java8HttpExecutor executor = new Java8HttpExecutor(url, "my-secret-token", "MyAgent/1.0");
+        NetHttpExecutor executor = new NetHttpExecutor(url, "my-secret-token", "MyAgent/1.0");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
         executor.execute(jsonPayload);
@@ -95,7 +93,7 @@ public class Java8HttpExecutorTest {
         responseStatus = 500;
         assertThrows(Exception.class, () -> {
             URL url = new URL("http://localhost:" + port + "/collect");
-            Java8HttpExecutor executor = new Java8HttpExecutor(url, "token", "Agent");
+            NetHttpExecutor executor = new NetHttpExecutor(url, "token", "Agent");
             executor.execute("{}");
         });
     }

@@ -9,8 +9,8 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>faststats-java8</artifactId>
-    <name>FastStats Java 8</name>
+    <artifactId>faststats-net</artifactId>
+    <name>FastStats Net</name>
 
     <dependencies>
         <dependency>

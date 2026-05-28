@@ -32,7 +32,7 @@
         <module>core</module>
         <module>gson</module>
         <module>bukkit</module>
-        <module>java8</module>
+        <module>net</module>
     </modules>
 
     <issueManagement>

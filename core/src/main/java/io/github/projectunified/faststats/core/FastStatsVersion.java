@@ -51,6 +51,6 @@ public final class FastStatsVersion {
      * @return the default user agent string
      */
     public static String getDefaultUserAgent() {
-        return "FastStats Metrics/ProjectUnified/" + VERSION;
+        return "ProjectUnified FastStats/" + VERSION;
     }
 }

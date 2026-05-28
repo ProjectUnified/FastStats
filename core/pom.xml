@@ -11,4 +11,13 @@
 
     <artifactId>faststats-core</artifactId>
     <name>FastStats Core</name>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+    </build>
 </project>

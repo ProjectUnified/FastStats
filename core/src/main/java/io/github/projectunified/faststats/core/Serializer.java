@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * Interface for serializing raw Java telemetry structures into standard JSON strings.
  */
-public interface JsonSerializer {
+public interface Serializer {
     /**
      * Serializes the given telemetry map into its JSON representation.
      *

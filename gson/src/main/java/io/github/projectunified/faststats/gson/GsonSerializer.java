@@ -1,14 +1,14 @@
 package io.github.projectunified.faststats.gson;
 
 import com.google.gson.Gson;
-import io.github.projectunified.faststats.core.JsonSerializer;
+import io.github.projectunified.faststats.core.Serializer;
 
 import java.util.Map;
 
 /**
- * An implementation of {@link JsonSerializer} that uses Google Gson.
+ * An implementation of {@link Serializer} that uses Google Gson.
  */
-public class GsonSerializer implements JsonSerializer {
+public class GsonSerializer implements Serializer {
     private final Gson gson;
 
     /**

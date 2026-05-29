@@ -1,6 +1,6 @@
 package io.github.projectunified.faststats.core;
 
-public class CapturingHttpExecutor implements HttpExecutor {
+public class CapturingSubmitter implements Submitter {
     String capturedJson;
     int callCount = 0;
 

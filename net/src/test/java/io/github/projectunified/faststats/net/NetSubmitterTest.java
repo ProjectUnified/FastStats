@@ -15,7 +15,7 @@ import java.util.zip.GZIPInputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class NetHttpExecutorTest {
+public class NetSubmitterTest {
 
     private HttpServer server;
     private int port;
@@ -62,7 +62,7 @@ public class NetHttpExecutorTest {
     @Test
     public void testSuccessfulExecution() throws Exception {
         URL url = new URL("http://localhost:" + port + "/collect");
-        NetHttpExecutor executor = new NetHttpExecutor(url, "my-secret-token", "MyAgent/1.0");
+        NetSubmitter executor = new NetSubmitter(url, "my-secret-token", "MyAgent/1.0");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
         executor.execute(jsonPayload);
@@ -73,7 +73,7 @@ public class NetHttpExecutorTest {
         assertEquals("MyAgent/1.0", receivedUserAgent);
 
         assertNotNull(receivedBody);
-        
+
         // Decompress the received body
         String decompressed;
         try (ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -93,7 +93,7 @@ public class NetHttpExecutorTest {
         responseStatus = 500;
         assertThrows(Exception.class, () -> {
             URL url = new URL("http://localhost:" + port + "/collect");
-            NetHttpExecutor executor = new NetHttpExecutor(url, "token", "Agent");
+            NetSubmitter executor = new NetSubmitter(url, "token", "Agent");
             executor.execute("{}");
         });
     }

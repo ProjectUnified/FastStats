@@ -13,11 +13,9 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class HttpClientHttpExecutorTest {
+public class HttpClientSubmitterTest {
 
     private HttpServer server;
     private int port;
@@ -64,7 +62,7 @@ public class HttpClientHttpExecutorTest {
     @Test
     public void testSuccessfulExecution() throws Exception {
         URI uri = URI.create("http://localhost:" + port + "/collect");
-        HttpClientHttpExecutor executor = new HttpClientHttpExecutor(uri, "my-secret-token");
+        HttpClientSubmitter executor = new HttpClientSubmitter(uri, "my-secret-token");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
         executor.execute(jsonPayload);
@@ -95,7 +93,7 @@ public class HttpClientHttpExecutorTest {
         responseStatus = 500;
         assertThrows(Exception.class, () -> {
             URI uri = URI.create("http://localhost:" + port + "/collect");
-            HttpClientHttpExecutor executor = new HttpClientHttpExecutor(uri, "token");
+            HttpClientSubmitter executor = new HttpClientSubmitter(uri, "token");
             executor.execute("{}");
         });
     }

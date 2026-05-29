@@ -3,7 +3,7 @@ package io.github.projectunified.faststats.core;
 /**
  * Interface to execute HTTP POST requests sending the JSON telemetry body to the server.
  */
-public interface HttpExecutor {
+public interface Submitter {
     /**
      * Executes the HTTP request carrying the serialized JSON payload.
      *

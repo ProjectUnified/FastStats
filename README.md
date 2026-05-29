@@ -4,14 +4,14 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Modules
 
-| Module         | Artifact               | Description                                                                                                               |
-|----------------|------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| **core**       | `faststats-core`       | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `JsonSerializer`, `HttpExecutor`, `TaskScheduler` |
-| **gson**       | `faststats-gson`       | `JsonSerializer` implementation using [Google Gson](https://github.com/google/gson)                                       |
-| **net**        | `faststats-net`        | `HttpExecutor` implementation using `java.net.HttpURLConnection`                                                          |
-| **httpclient** | `faststats-httpclient` | `HttpExecutor` implementation using standard `java.net.http.HttpClient` (Requires Java 11+)                               |
-| **bukkit**     | `faststats-bukkit`     | `Platform` implementation for Bukkit/Spigot/Paper servers                                                                 |
-| **bom**        | `faststats-bom`        | Bill of Materials (BOM) to manage versions of all FastStats modules                                                        |
+| Module         | Artifact               | Description                                                                                                        |
+|----------------|------------------------|--------------------------------------------------------------------------------------------------------------------|
+| **core**       | `faststats-core`       | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `Serializer`, `Submitter`, `TaskScheduler` |
+| **gson**       | `faststats-gson`       | `Serializer` implementation using [Google Gson](https://github.com/google/gson)                                    |
+| **net**        | `faststats-net`        | `Submitter` implementation using `java.net.HttpURLConnection` (NetSubmitter)                                       |
+| **httpclient** | `faststats-httpclient` | `Submitter` implementation using standard `java.net.http.HttpClient` (HttpClientSubmitter, Requires Java 11+)      |
+| **bukkit**     | `faststats-bukkit`     | `Platform` implementation for Bukkit/Spigot/Paper servers                                                          |
+| **bom**        | `faststats-bom`        | Bill of Materials (BOM) to manage versions of all FastStats modules                                                |
 
 ## Requirements
 
@@ -19,7 +19,8 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Installation
 
-It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of FastStats modules:
+It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of
+FastStats modules:
 
 ```xml
 <dependencyManagement>
@@ -49,13 +50,13 @@ Then, add the modules you need to your `pom.xml` without specifying versions:
     <artifactId>faststats-gson</artifactId>
 </dependency>
 
-<!-- HTTP executor (Java 8+) -->
+<!-- Submitter (Java 8+) -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-net</artifactId>
 </dependency>
 
-<!-- HTTP executor (Java 11+) -->
+<!-- Submitter (Java 11+) -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-httpclient</artifactId>
@@ -79,11 +80,11 @@ public class MyPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         metrics = Metrics.builder()
-            .platform(new BukkitPlatform(this))
-            .serializer(new GsonSerializer())
-            .httpExecutor(new NetHttpExecutor("YOUR_TOKEN"))
-            .addMetric(Metric.string("my_feature", () -> "enabled"))
-            .build();
+                .platform(new BukkitPlatform(this))
+                .serializer(new GsonSerializer())
+                .submitter(new NetSubmitter("YOUR_TOKEN"))
+                .addMetric(Metric.string("my_feature", () -> "enabled"))
+                .build();
         metrics.start();
     }
 

@@ -7,8 +7,8 @@ import java.util.*;
  */
 public class Metrics {
     private final Platform platform;
-    private final JsonSerializer serializer;
-    private final HttpExecutor httpExecutor;
+    private final Serializer serializer;
+    private final Submitter submitter;
     private final TaskScheduler scheduler;
     private final List<Metric<?>> additionalMetrics;
     private final List<Feature> features;
@@ -16,7 +16,7 @@ public class Metrics {
     private Metrics(Builder builder) {
         this.platform = builder.platform;
         this.serializer = builder.serializer;
-        this.httpExecutor = builder.httpExecutor;
+        this.submitter = builder.submitter;
         this.scheduler = builder.scheduler;
         this.additionalMetrics = Collections.unmodifiableList(new ArrayList<>(builder.additionalMetrics));
         this.features = Collections.unmodifiableList(new ArrayList<>(builder.features));
@@ -194,7 +194,7 @@ public class Metrics {
         String json = serializer.serialize(payload);
         logInfo("Submitting metrics payload: " + json);
         try {
-            httpExecutor.execute(json);
+            submitter.execute(json);
             logInfo("Metrics submitted successfully.");
         } catch (Exception e) {
             logError("Failed to submit metrics", e);
@@ -227,8 +227,8 @@ public class Metrics {
         private final List<Metric<?>> additionalMetrics = new ArrayList<>();
         private final List<Feature> features = new ArrayList<>();
         private Platform platform;
-        private JsonSerializer serializer;
-        private HttpExecutor httpExecutor;
+        private Serializer serializer;
+        private Submitter submitter;
         private TaskScheduler scheduler = TaskScheduler.defaultScheduler();
 
         /**
@@ -245,22 +245,22 @@ public class Metrics {
         /**
          * Sets the JSON serializer.
          *
-         * @param serializer the JSON serializer
+         * @param serializer the serializer
          * @return this builder instance
          */
-        public Builder serializer(JsonSerializer serializer) {
+        public Builder serializer(Serializer serializer) {
             this.serializer = serializer;
             return this;
         }
 
         /**
-         * Sets the HTTP executor.
+         * Sets the submitter.
          *
-         * @param httpExecutor the HTTP executor
+         * @param submitter the submitter
          * @return this builder instance
          */
-        public Builder httpExecutor(HttpExecutor httpExecutor) {
-            this.httpExecutor = httpExecutor;
+        public Builder submitter(Submitter submitter) {
+            this.submitter = submitter;
             return this;
         }
 
@@ -330,10 +330,10 @@ public class Metrics {
                 throw new IllegalStateException("Platform must be specified");
             }
             if (serializer == null) {
-                throw new IllegalStateException("JsonSerializer must be specified");
+                throw new IllegalStateException("Serializer must be specified");
             }
-            if (httpExecutor == null) {
-                throw new IllegalStateException("HttpExecutor must be specified");
+            if (submitter == null) {
+                throw new IllegalStateException("Submitter must be specified");
             }
             return new Metrics(this);
         }

@@ -1,7 +1,7 @@
 package io.github.projectunified.faststats.net;
 
 import io.github.projectunified.faststats.core.FastStatsVersion;
-import io.github.projectunified.faststats.core.HttpExecutor;
+import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
@@ -12,10 +12,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * Implementation of {@link HttpExecutor} that uses {@link HttpURLConnection}
+ * Implementation of {@link Submitter} that uses {@link HttpURLConnection}
  * to submit GZIP-compressed telemetry payloads.
  */
-public class NetHttpExecutor implements HttpExecutor {
+public class NetSubmitter implements Submitter {
     private static final String DEFAULT_URL = "https://metrics.faststats.dev/v1/collect";
 
     private final URL url;
@@ -23,23 +23,23 @@ public class NetHttpExecutor implements HttpExecutor {
     private final String userAgent;
 
     /**
-     * Constructs a new {@link NetHttpExecutor} with the default metrics URL
+     * Constructs a new {@link NetSubmitter} with the default metrics URL
      * ({@code https://metrics.faststats.dev/v1/collect}) and default user agent.
      *
      * @param token the authorization token (bearer)
      */
-    public NetHttpExecutor(String token) {
+    public NetSubmitter(String token) {
         this(getDefaultURL(), token, FastStatsVersion.getDefaultUserAgent());
     }
 
     /**
-     * Constructs a new {@link NetHttpExecutor}.
+     * Constructs a new {@link NetSubmitter}.
      *
      * @param url       the target metrics URL
      * @param token     the authorization token (bearer)
      * @param userAgent the user agent header value
      */
-    public NetHttpExecutor(URL url, String token, String userAgent) {
+    public NetSubmitter(URL url, String token, String userAgent) {
         this.url = url;
         this.token = token;
         this.userAgent = userAgent;
@@ -47,9 +47,9 @@ public class NetHttpExecutor implements HttpExecutor {
 
     private static URL getDefaultURL() {
         try {
-            return new URL(NetHttpExecutor.DEFAULT_URL);
+            return new URL(NetSubmitter.DEFAULT_URL);
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Invalid URL: " + NetHttpExecutor.DEFAULT_URL, e);
+            throw new RuntimeException("Invalid URL: " + NetSubmitter.DEFAULT_URL, e);
         }
     }
 

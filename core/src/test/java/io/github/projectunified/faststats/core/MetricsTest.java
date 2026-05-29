@@ -2,17 +2,9 @@ package io.github.projectunified.faststats.core;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class MetricsTest {
 
@@ -21,13 +13,13 @@ public class MetricsTest {
         MockPlatform platform = new MockPlatform();
         platform.metrics.add(Metric.string("platform_metric", () -> "platform_val"));
 
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .addMetric(Metric.number("added_metric", () -> 42))
                 .build();
 
@@ -50,13 +42,13 @@ public class MetricsTest {
         MockPlatform platform = new MockPlatform();
         platform.config.enabled = false;
 
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .build();
 
         metrics.submit();
@@ -67,13 +59,13 @@ public class MetricsTest {
     @Test
     public void testSubmit_onDemand() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .build();
 
         Map<String, Object> customPayload = new HashMap<>();
@@ -113,13 +105,13 @@ public class MetricsTest {
         });
         platform.metrics.add(Metric.collection("col_metric", () -> mixedCol));
 
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .build();
 
         metrics.submit();
@@ -132,14 +124,14 @@ public class MetricsTest {
     @Test
     public void testSchedule() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .scheduler(scheduler)
                 .build();
 
@@ -159,13 +151,13 @@ public class MetricsTest {
     @Test
     public void testDefaultTaskScheduler() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .build();
 
         metrics.start(10, 1000);
@@ -179,14 +171,14 @@ public class MetricsTest {
     @Test
     public void testStart_defaultDelay() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .scheduler(scheduler)
                 .build();
 
@@ -206,14 +198,14 @@ public class MetricsTest {
     @Test
     public void testStart_customDelayProperty() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .scheduler(scheduler)
                 .build();
 
@@ -238,20 +230,20 @@ public class MetricsTest {
         platform.config.firstRun = true;
         platform.config.enabled = false;
 
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .scheduler(scheduler)
                 .build();
 
         assertTrue(platform.loggedInfos.isEmpty());
         metrics.start(1000, 5000);
-        
+
         assertFalse(platform.loggedInfos.isEmpty());
         boolean hasOnboardingKeywords = false;
         for (String msg : platform.loggedInfos) {
@@ -267,7 +259,7 @@ public class MetricsTest {
     @Test
     public void testFeatureSubmit() throws Exception {
         MockPlatform platform = new MockPlatform();
-        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        CapturingSubmitter http = new CapturingSubmitter();
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
@@ -300,7 +292,7 @@ public class MetricsTest {
         Metrics metrics = Metrics.builder()
                 .platform(platform)
                 .serializer(serializer)
-                .httpExecutor(http)
+                .submitter(http)
                 .scheduler(scheduler)
                 .addFeature(myFeature)
                 .build();

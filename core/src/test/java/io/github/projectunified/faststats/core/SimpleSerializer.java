@@ -2,7 +2,7 @@ package io.github.projectunified.faststats.core;
 
 import java.util.Map;
 
-public class SimpleSerializer implements JsonSerializer {
+public class SimpleSerializer implements Serializer {
     @Override
     public String serialize(Map<String, Object> value) throws Exception {
         return String.valueOf(value);

@@ -1,7 +1,7 @@
 package io.github.projectunified.faststats.httpclient;
 
 import io.github.projectunified.faststats.core.FastStatsVersion;
-import io.github.projectunified.faststats.core.HttpExecutor;
+import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
@@ -13,10 +13,10 @@ import java.time.Duration;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * Implementation of {@link HttpExecutor} that uses {@link HttpClient}
+ * Implementation of {@link Submitter} that uses {@link HttpClient}
  * to submit GZIP-compressed telemetry payloads.
  */
-public class HttpClientHttpExecutor implements HttpExecutor {
+public class HttpClientSubmitter implements Submitter {
     private static final String DEFAULT_URL = "https://metrics.faststats.dev/v1/collect";
 
     private final HttpClient httpClient;
@@ -25,36 +25,36 @@ public class HttpClientHttpExecutor implements HttpExecutor {
     private final String userAgent;
 
     /**
-     * Constructs a new {@link HttpClientHttpExecutor} with the default metrics URI
+     * Constructs a new {@link HttpClientSubmitter} with the default metrics URI
      * ({@code https://metrics.faststats.dev/v1/collect}), standard {@link HttpClient},
      * and default user agent.
      *
      * @param token the authorization token (bearer)
      */
-    public HttpClientHttpExecutor(String token) {
+    public HttpClientSubmitter(String token) {
         this(URI.create(DEFAULT_URL), token);
     }
 
     /**
-     * Constructs a new {@link HttpClientHttpExecutor} with standard {@link HttpClient}
+     * Constructs a new {@link HttpClientSubmitter} with standard {@link HttpClient}
      * and default user agent.
      *
      * @param uri   the target metrics URI
      * @param token the authorization token (bearer)
      */
-    public HttpClientHttpExecutor(URI uri, String token) {
+    public HttpClientSubmitter(URI uri, String token) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(), uri, token, FastStatsVersion.getDefaultUserAgent());
     }
 
     /**
-     * Constructs a new {@link HttpClientHttpExecutor}.
+     * Constructs a new {@link HttpClientSubmitter}.
      *
      * @param httpClient the HttpClient instance to use
      * @param uri        the target metrics URI
      * @param token      the authorization token (bearer)
      * @param userAgent  the user agent header value
      */
-    public HttpClientHttpExecutor(HttpClient httpClient, URI uri, String token, String userAgent) {
+    public HttpClientSubmitter(HttpClient httpClient, URI uri, String token, String userAgent) {
         this.httpClient = httpClient;
         this.uri = uri;
         this.token = token;

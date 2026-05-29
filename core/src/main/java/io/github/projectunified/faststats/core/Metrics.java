@@ -57,17 +57,18 @@ public class Metrics {
         }
         Config config = platform.getConfig();
         if (config.isFirstRun()) {
-            String onboardingMessage =
-                    "This plugin uses FastStats to collect anonymous usage statistics.\n" +
-                    "No personal or identifying information is ever collected.\n" +
-                    "To opt out, set 'enabled=false' in the metrics configuration file.\n" +
-                    "Learn more at: https://faststats.dev/info\n\n" +
-                    "Since this is your first start with FastStats, metrics submission will not start\n" +
-                    "until you restart the server to allow you to opt out if you prefer.";
+            String[] onboardingMessage = {
+                    "This plugin uses FastStats to collect anonymous usage statistics.",
+                    "No personal or identifying information is ever collected.",
+                    "To opt out, set 'enabled=false' in the metrics configuration file.",
+                    "Learn more at: https://faststats.dev/info",
+                    "",
+                    "Since this is your first start with FastStats, metrics submission will not start",
+                    "until you restart the server to allow you to opt out if you prefer."
+            };
 
             int separatorLength = 0;
-            String[] split = onboardingMessage.split("\n");
-            for (String s : split) {
+            for (String s : onboardingMessage) {
                 if (s.length() > separatorLength) {
                     separatorLength = s.length();
                 }
@@ -80,7 +81,7 @@ public class Metrics {
             String separator = separatorBuilder.toString();
 
             platform.logInfo(separator);
-            for (String s : split) {
+            for (String s : onboardingMessage) {
                 platform.logInfo(s);
             }
             platform.logInfo(separator);

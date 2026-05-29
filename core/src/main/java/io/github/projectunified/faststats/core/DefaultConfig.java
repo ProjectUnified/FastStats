@@ -16,6 +16,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * from a properties file.
  */
 public class DefaultConfig implements Config {
+    public static final String[] DEFAULT_COMMENT = {
+            " FastStats (https://faststats.dev) collects anonymous usage statistics for plugin developers.",
+            "# This helps developers understand how their projects are used in the real world.",
+            "#",
+            "# No IP addresses, player data, or personal information is collected.",
+            "# The server ID below is randomly generated and can be regenerated at any time.",
+            "#",
+            "# Enabling metrics has no noticeable performance impact.",
+            "# Keeping metrics enabled is recommended, but you can opt out by setting",
+            "# 'enabled=false' in plugins/faststats/config.properties.",
+            "#",
+            "# If you suspect a plugin is collecting personal data or bypassing the \"enabled\" option,",
+            "# please report it at: https://faststats.dev/abuse",
+            "#",
+            "# For more information, visit: https://faststats.dev/info"
+    };
+
     private final UUID serverId;
     private final boolean additionalMetrics;
     private final boolean debug;
@@ -46,22 +63,6 @@ public class DefaultConfig implements Config {
         this.externallyManaged = externallyManaged;
     }
 
-    public static final String DEFAULT_COMMENT =
-            " FastStats (https://faststats.dev) collects anonymous usage statistics for plugin developers.\n" +
-            "# This helps developers understand how their projects are used in the real world.\n" +
-            "#\n" +
-            "# No IP addresses, player data, or personal information is collected.\n" +
-            "# The server ID below is randomly generated and can be regenerated at any time.\n" +
-            "#\n" +
-            "# Enabling metrics has no noticeable performance impact.\n" +
-            "# Keeping metrics enabled is recommended, but you can opt out by setting\n" +
-            "# 'enabled=false' in plugins/faststats/config.properties.\n" +
-            "#\n" +
-            "# If you suspect a plugin is collecting personal data or bypassing the \"enabled\" option,\n" +
-            "# please report it at: https://faststats.dev/abuse\n" +
-            "#\n" +
-            "# For more information, visit: https://faststats.dev/info\n";
-
     /**
      * Reads a config from the specified path with default settings.
      *
@@ -83,7 +84,7 @@ public class DefaultConfig implements Config {
      * @return the loaded DefaultConfig
      * @throws RuntimeException if loading or saving fails
      */
-    public static DefaultConfig read(Path file, String comment, boolean externallyManaged, boolean externallyEnabled) throws RuntimeException {
+    public static DefaultConfig read(Path file, String[] comment, boolean externallyManaged, boolean externallyEnabled) throws RuntimeException {
         boolean firstRun = !Files.isRegularFile(file);
         Properties properties = readOrEmpty(file);
         AtomicBoolean saveConfig = new AtomicBoolean(firstRun);
@@ -145,7 +146,7 @@ public class DefaultConfig implements Config {
         }
     }
 
-    private static void save(Path file, boolean externallyManaged, String comment, UUID serverId, boolean enabled, boolean errorTracking, boolean additionalMetrics, boolean debug) throws IOException {
+    private static void save(Path file, boolean externallyManaged, String[] comment, UUID serverId, boolean enabled, boolean errorTracking, boolean additionalMetrics, boolean debug) throws IOException {
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }
@@ -161,7 +162,8 @@ public class DefaultConfig implements Config {
             properties.setProperty("submitAdditionalMetrics", Boolean.toString(additionalMetrics));
             properties.setProperty("debug", Boolean.toString(debug));
 
-            properties.store(writer, comment);
+            String commentStr = comment != null ? String.join("\n", comment) : null;
+            properties.store(writer, commentStr);
         }
     }
 

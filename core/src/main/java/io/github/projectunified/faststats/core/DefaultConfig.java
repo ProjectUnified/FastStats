@@ -44,7 +44,6 @@ public class DefaultConfig implements Config {
     private final boolean additionalMetrics;
     private final boolean debug;
     private final boolean enabled;
-    private final boolean errorTracking;
 
     /**
      * Constructs a new {@link DefaultConfig} instance.
@@ -58,10 +57,9 @@ public class DefaultConfig implements Config {
      * @param additionalMetrics whether to submit additional metrics
      * @param debug             whether debug logging is enabled
      * @param enabled           whether metrics collection is enabled
-     * @param errorTracking     whether to track errors
      */
     public DefaultConfig(Path file, String[] comment, boolean externallyManaged, Properties properties, boolean firstRun,
-                         UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled, boolean errorTracking) {
+                         UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled) {
         this.file = file;
         this.comment = comment;
         this.externallyManaged = externallyManaged;
@@ -71,7 +69,6 @@ public class DefaultConfig implements Config {
         this.additionalMetrics = additionalMetrics;
         this.debug = debug;
         this.enabled = enabled;
-        this.errorTracking = errorTracking;
     }
 
     /**
@@ -130,7 +127,6 @@ public class DefaultConfig implements Config {
             properties.setProperty("enabled", Boolean.toString(enabled));
         }
 
-        boolean errorTracking = getBooleanProperty(properties, "submitErrors", true, saveConfig);
         boolean additionalMetrics = getBooleanProperty(properties, "submitAdditionalMetrics", true, saveConfig);
         boolean debug = getBooleanProperty(properties, "debug", false, saveConfig);
 
@@ -143,7 +139,7 @@ public class DefaultConfig implements Config {
         }
 
         return new DefaultConfig(file, comment, externallyManaged, properties, firstRun,
-                serverId, additionalMetrics, debug, enabled, errorTracking);
+                serverId, additionalMetrics, debug, enabled);
     }
 
     private static boolean getBooleanProperty(Properties properties, String key, boolean defaultValue, AtomicBoolean saveConfig) {
@@ -203,15 +199,6 @@ public class DefaultConfig implements Config {
     @Override
     public boolean isFirstRun() {
         return firstRun;
-    }
-
-    /**
-     * Checks if error tracking is enabled.
-     *
-     * @return true if enabled, false otherwise
-     */
-    public boolean isErrorTracking() {
-        return errorTracking;
     }
 
     @Override

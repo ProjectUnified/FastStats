@@ -27,7 +27,6 @@ public class DefaultConfigTest {
         assertNotNull(config.getServerId());
         assertFalse(config.isEnabled());
         assertTrue(config.isSubmitAdditionalMetrics());
-        assertTrue(config.isErrorTracking());
         assertFalse(config.isDebug());
 
         // File should be saved automatically on first run
@@ -48,7 +47,6 @@ public class DefaultConfigTest {
         try (BufferedWriter writer = Files.newBufferedWriter(configFile, StandardCharsets.UTF_8)) {
             writer.write("serverId=" + expectedUuid.toString() + "\n");
             writer.write("enabled=false\n");
-            writer.write("submitErrors=false\n");
             writer.write("submitAdditionalMetrics=false\n");
             writer.write("debug=true\n");
         }
@@ -58,7 +56,6 @@ public class DefaultConfigTest {
         assertEquals(expectedUuid, config.getServerId());
         assertFalse(config.isEnabled());
         assertFalse(config.isSubmitAdditionalMetrics());
-        assertFalse(config.isErrorTracking());
         assertTrue(config.isDebug());
     }
 

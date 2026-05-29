@@ -183,6 +183,11 @@ public class DefaultConfig implements Config {
         return debug;
     }
 
+    @Override
+    public boolean isFirstRun() {
+        return firstRun;
+    }
+
     /**
      * Checks if error tracking is enabled.
      *
@@ -190,15 +195,5 @@ public class DefaultConfig implements Config {
      */
     public boolean isErrorTracking() {
         return errorTracking;
-    }
-
-    /**
-     * Helper method to check if it's the first time running the stats.
-     *
-     * @return true if first time, false otherwise
-     */
-    @Override
-    public boolean isFirstRun() {
-        return firstRun;
     }
 }

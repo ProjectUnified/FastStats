@@ -12,8 +12,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Check for previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | head -n 2 | tail -n 1)
+          CURRENT_TAG=$(git describe --tags --abbrev=0)
+          if [ "$PREV_TAG" = "$CURRENT_TAG" ] || [ -z "$PREV_TAG" ]; then
+            echo "first_release=true" >> "$GITHUB_OUTPUT"
+            echo "changelog=This is marked as the first release" >> "$GITHUB_OUTPUT"
+          else
+            echo "first_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate changelog
         id: changelog
+        if: steps.prev_tag.outputs.first_release == 'false'
         uses: metcalfc/changelog-generator@v4.7.0
         with:
           myToken: ${{ secrets.GITHUB_TOKEN }}
@@ -50,7 +63,7 @@ jobs:
       - name: "Release"
         uses: softprops/action-gh-release@v3
         with:
-          body: ${{ steps.changelog.outputs.changelog }}
+          body: ${{ steps.changelog.outputs.changelog || steps.prev_tag.outputs.changelog }}
           draft: false
           prerelease: false
           files: "**/target/*.jar"

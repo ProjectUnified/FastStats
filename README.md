@@ -10,6 +10,7 @@ A client implementation for [FastStats](https://faststats.dev)
 | **gson**   | `faststats-gson`   | `JsonSerializer` implementation using [Google Gson](https://github.com/google/gson)                                       |
 | **net**    | `faststats-net`    | `HttpExecutor` implementation using `java.net.HttpURLConnection`                                                          |
 | **bukkit** | `faststats-bukkit` | `Platform` implementation for Bukkit/Spigot/Paper servers                                                                 |
+| **bom**    | `faststats-bom`    | Bill of Materials (BOM) to manage versions of all FastStats modules                                                        |
 
 ## Requirements
 
@@ -17,34 +18,46 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Installation
 
-Add the modules you need to your `pom.xml`:
+It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of FastStats modules:
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>io.github.projectunified</groupId>
+            <artifactId>faststats-bom</artifactId>
+            <version>VERSION</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+Then, add the modules you need to your `pom.xml` without specifying versions:
 
 ```xml
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-core</artifactId>
-    <version>VERSION</version>
 </dependency>
 
 <!-- JSON serialization -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-gson</artifactId>
-    <version>VERSION</version>
 </dependency>
 
 <!-- HTTP executor -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-net</artifactId>
-    <version>VERSION</version>
 </dependency>
 
 <!-- Platform -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-bukkit</artifactId>
-    <version>VERSION</version>
 </dependency>
 ```
 

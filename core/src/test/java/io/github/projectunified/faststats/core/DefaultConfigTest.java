@@ -36,7 +36,7 @@ public class DefaultConfigTest {
         DefaultConfig secondConfig = DefaultConfig.read(configFile);
         assertFalse(secondConfig.isFirstRun());
         assertEquals(config.getServerId(), secondConfig.getServerId());
-        assertFalse(secondConfig.isEnabled());
+        assertTrue(secondConfig.isEnabled());
     }
 
     @Test

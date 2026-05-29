@@ -1,0 +1,5 @@
+io.github.projectunified.faststats.bukkit
+io.github.projectunified.faststats.core
+io.github.projectunified.faststats.gson
+io.github.projectunified.faststats.httpclient
+io.github.projectunified.faststats.net

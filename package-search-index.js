@@ -1,0 +1,1 @@
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"io.github.projectunified.faststats.bukkit"},{"l":"io.github.projectunified.faststats.core"},{"l":"io.github.projectunified.faststats.gson"},{"l":"io.github.projectunified.faststats.httpclient"},{"l":"io.github.projectunified.faststats.net"}];updateSearchResults();

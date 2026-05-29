@@ -11,6 +11,7 @@ public class Metrics {
     private final HttpExecutor httpExecutor;
     private final TaskScheduler scheduler;
     private final List<Metric<?>> additionalMetrics;
+    private final List<Feature> features;
 
     private Metrics(Builder builder) {
         this.platform = builder.platform;
@@ -18,6 +19,10 @@ public class Metrics {
         this.httpExecutor = builder.httpExecutor;
         this.scheduler = builder.scheduler;
         this.additionalMetrics = Collections.unmodifiableList(new ArrayList<>(builder.additionalMetrics));
+        this.features = Collections.unmodifiableList(new ArrayList<>(builder.features));
+        for (Feature feature : this.features) {
+            feature.setMetrics(this);
+        }
     }
 
     /**
@@ -91,6 +96,14 @@ public class Metrics {
                 logError("Error during scheduled metrics submission", t);
             }
         }, initialDelayMs, periodMs);
+
+        for (Feature feature : features) {
+            try {
+                feature.onStart();
+            } catch (Throwable t) {
+                logError("Error starting feature " + feature.getKey(), t);
+            }
+        }
     }
 
     /**
@@ -100,6 +113,13 @@ public class Metrics {
         if (scheduler != null) {
             scheduler.shutdown();
         }
+        for (Feature feature : features) {
+            try {
+                feature.onShutdown();
+            } catch (Throwable t) {
+                logError("Error shutting down feature " + feature.getKey(), t);
+            }
+        }
     }
 
     /**
@@ -107,7 +127,7 @@ public class Metrics {
      *
      * @throws Exception if data collection or submission fails
      */
-    public void submit() throws Exception {
+    void submit() throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             return;
@@ -160,7 +180,7 @@ public class Metrics {
      * @param data the map data payload
      * @throws Exception if submission fails
      */
-    public void submit(String key, Map<String, Object> data) throws Exception {
+    void submit(String key, Map<String, Object> data) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");
@@ -204,6 +224,7 @@ public class Metrics {
      */
     public static class Builder {
         private final List<Metric<?>> additionalMetrics = new ArrayList<>();
+        private final List<Feature> features = new ArrayList<>();
         private Platform platform;
         private JsonSerializer serializer;
         private HttpExecutor httpExecutor;
@@ -272,6 +293,28 @@ public class Metrics {
          */
         public Builder addMetrics(Collection<Metric<?>> metrics) {
             this.additionalMetrics.addAll(metrics);
+            return this;
+        }
+
+        /**
+         * Adds a feature to be configured with the submit executor.
+         *
+         * @param feature the feature to add
+         * @return this builder instance
+         */
+        public Builder addFeature(Feature feature) {
+            this.features.add(feature);
+            return this;
+        }
+
+        /**
+         * Adds a collection of features to be configured with the submit executor.
+         *
+         * @param features the features to add
+         * @return this builder instance
+         */
+        public Builder addFeatures(Collection<Feature> features) {
+            this.features.addAll(features);
             return this;
         }
 

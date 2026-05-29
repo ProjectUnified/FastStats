@@ -263,4 +263,65 @@ public class MetricsTest {
         assertTrue(hasOnboardingKeywords);
         assertNull(scheduler.scheduledTask);
     }
+
+    @Test
+    public void testFeatureSubmit() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingHttpExecutor http = new CapturingHttpExecutor();
+        SimpleSerializer serializer = new SimpleSerializer();
+        MockTaskScheduler scheduler = new MockTaskScheduler();
+
+        class MyFeature extends Feature {
+            boolean started = false;
+            boolean shutdown = false;
+
+            @Override
+            public String getKey() {
+                return "custom_feature_key";
+            }
+
+            @Override
+            public void onStart() {
+                started = true;
+            }
+
+            @Override
+            public void onShutdown() {
+                shutdown = true;
+            }
+
+            public void triggerSubmit(Map<String, Object> data) throws Exception {
+                submit(data);
+            }
+        }
+
+        MyFeature myFeature = new MyFeature();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(serializer)
+                .httpExecutor(http)
+                .scheduler(scheduler)
+                .addFeature(myFeature)
+                .build();
+
+        assertFalse(myFeature.started);
+        assertFalse(myFeature.shutdown);
+
+        metrics.start(1000, 5000);
+        assertTrue(myFeature.started);
+        assertFalse(myFeature.shutdown);
+
+        Map<String, Object> featureData = new HashMap<>();
+        featureData.put("key", "val");
+
+        myFeature.triggerSubmit(featureData);
+
+        assertEquals(1, http.callCount);
+        assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));
+        assertTrue(http.capturedJson.contains("custom_feature_key={key=val}"));
+
+        metrics.shutdown();
+        assertTrue(myFeature.shutdown);
+    }
 }

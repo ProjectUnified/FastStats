@@ -5,11 +5,11 @@ import io.github.projectunified.faststats.core.DefaultConfig;
 import io.github.projectunified.faststats.core.Metric;
 import io.github.projectunified.faststats.core.Platform;
 import org.bukkit.Server;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -20,64 +20,55 @@ import java.util.logging.Level;
  * Bukkit implementation of {@link Platform}.
  */
 public class BukkitPlatform implements Platform {
-    private static final MethodHandle GET_PLUGINS_FOLDER;
-    private static final MethodHandle SPIGOT;
-    private static final MethodHandle GET_MINECRAFT_VERSION;
-    private static final MethodHandle GET_SERVER_CONFIG;
-    private static final MethodHandle GET_PLUGIN_META;
-    private static final MethodHandle GET_PAPER_CONFIG;
-    private static final MethodHandle GET_SPIGOT_CONFIG;
-    private static final MethodHandle GET_CONFIGURATION_SECTION;
-    private static final MethodHandle GET_BOOLEAN;
+    private static final Method GET_PLUGINS_FOLDER;
+    private static final Method SPIGOT;
+    private static final Method GET_MINECRAFT_VERSION;
+    private static final Method GET_SERVER_CONFIG;
+    private static final Method GET_PAPER_CONFIG;
+    private static final Method GET_SPIGOT_CONFIG;
+    private static final Method GET_ONLINE_PLAYERS;
+    private static final boolean GET_ONLINE_PLAYERS_IS_COLLECTION;
 
     static {
-        MethodHandles.Lookup lookup = MethodHandles.publicLookup();
-        MethodHandle getPluginsFolder = null;
-        MethodHandle spigot = null;
-        MethodHandle getMinecraftVersion = null;
-        MethodHandle getServerConfig = null;
-        MethodHandle getPluginMeta = null;
-        MethodHandle getPaperConfig = null;
-        MethodHandle getSpigotConfig = null;
-        MethodHandle getConfigurationSection = null;
-        MethodHandle getBoolean = null;
+        Method getPluginsFolder = null;
+        Method spigot = null;
+        Method getMinecraftVersion = null;
+        Method getServerConfig = null;
+        Method getPaperConfig = null;
+        Method getSpigotConfig = null;
+        Method getOnlinePlayers = null;
+        boolean getOnlinePlayersIsCollection = false;
 
         try {
-            getPluginsFolder = lookup.unreflect(Server.class.getMethod("getPluginsFolder"));
+            getPluginsFolder = Server.class.getMethod("getPluginsFolder");
         } catch (Throwable ignored) {
         }
 
         try {
-            spigot = lookup.unreflect(Server.class.getMethod("spigot"));
+            spigot = Server.class.getMethod("spigot");
         } catch (Throwable ignored) {
         }
 
         try {
-            getMinecraftVersion = lookup.unreflect(Server.class.getMethod("getMinecraftVersion"));
+            getMinecraftVersion = Server.class.getMethod("getMinecraftVersion");
         } catch (Throwable ignored) {
         }
 
         try {
-            getServerConfig = lookup.unreflect(Server.class.getMethod("getServerConfig"));
-        } catch (Throwable ignored) {
-        }
-
-        try {
-            getPluginMeta = lookup.unreflect(Plugin.class.getMethod("getPluginMeta"));
-        } catch (Throwable ignored) {
-        }
-
-        try {
-            Class<?> configSectionClass = Class.forName("org.bukkit.configuration.ConfigurationSection");
-            getConfigurationSection = lookup.unreflect(configSectionClass.getMethod("getConfigurationSection", String.class));
-            getBoolean = lookup.unreflect(configSectionClass.getMethod("getBoolean", String.class));
+            getServerConfig = Server.class.getMethod("getServerConfig");
         } catch (Throwable ignored) {
         }
 
         try {
             Class<?> spigotClass = Class.forName("org.bukkit.Server$Spigot");
-            getPaperConfig = lookup.unreflect(spigotClass.getMethod("getPaperConfig"));
-            getSpigotConfig = lookup.unreflect(spigotClass.getMethod("getSpigotConfig"));
+            getPaperConfig = spigotClass.getMethod("getPaperConfig");
+            getSpigotConfig = spigotClass.getMethod("getSpigotConfig");
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            getOnlinePlayers = Server.class.getMethod("getOnlinePlayers");
+            getOnlinePlayersIsCollection = Collection.class.isAssignableFrom(getOnlinePlayers.getReturnType());
         } catch (Throwable ignored) {
         }
 
@@ -85,11 +76,10 @@ public class BukkitPlatform implements Platform {
         SPIGOT = spigot;
         GET_MINECRAFT_VERSION = getMinecraftVersion;
         GET_SERVER_CONFIG = getServerConfig;
-        GET_PLUGIN_META = getPluginMeta;
         GET_PAPER_CONFIG = getPaperConfig;
         GET_SPIGOT_CONFIG = getSpigotConfig;
-        GET_CONFIGURATION_SECTION = getConfigurationSection;
-        GET_BOOLEAN = getBoolean;
+        GET_ONLINE_PLAYERS = getOnlinePlayers;
+        GET_ONLINE_PLAYERS_IS_COLLECTION = getOnlinePlayersIsCollection;
     }
 
     private final Plugin plugin;
@@ -147,8 +137,7 @@ public class BukkitPlatform implements Platform {
             try {
                 if (GET_SERVER_CONFIG != null) {
                     Object serverConfig = GET_SERVER_CONFIG.invoke(server);
-                    MethodHandle isProxyOnlineMode = MethodHandles.publicLookup()
-                            .unreflect(serverConfig.getClass().getMethod("isProxyOnlineMode"));
+                    Method isProxyOnlineMode = serverConfig.getClass().getMethod("isProxyOnlineMode");
                     return (Boolean) isProxyOnlineMode.invoke(serverConfig);
                 }
             } catch (Throwable ignored) {
@@ -164,26 +153,21 @@ public class BukkitPlatform implements Platform {
         // Player Count
         defaultMetrics.add(Metric.number("player_count", () -> {
             try {
-                return server.getOnlinePlayers().size();
-            } catch (Throwable t) {
-                return 0;
-            }
-        }));
-
-        // Plugin Version
-        defaultMetrics.add(Metric.string("plugin_version", () -> {
-            try {
-                if (GET_PLUGIN_META != null) {
-                    Object pluginMeta = GET_PLUGIN_META.invoke(plugin);
-                    MethodHandle getVersion = MethodHandles.publicLookup()
-                            .unreflect(pluginMeta.getClass().getMethod("getVersion"));
-                    return (String) getVersion.invoke(pluginMeta);
+                if (GET_ONLINE_PLAYERS != null) {
+                    Object onlinePlayers = GET_ONLINE_PLAYERS.invoke(server);
+                    if (GET_ONLINE_PLAYERS_IS_COLLECTION) {
+                        return ((Collection<?>) onlinePlayers).size();
+                    } else {
+                        return ((Object[]) onlinePlayers).length;
+                    }
                 }
             } catch (Throwable ignored) {
             }
-
-            return plugin.getDescription().getVersion();
+            return 0;
         }));
+
+        // Plugin Version
+        defaultMetrics.add(Metric.string("plugin_version", () -> plugin.getDescription().getVersion()));
 
         // Server Type
         defaultMetrics.add(Metric.string("server_type", server::getName));
@@ -202,16 +186,19 @@ public class BukkitPlatform implements Platform {
             return false;
         }
 
-        Object proxies = null;
+        ConfigurationSection proxies = null;
         try {
-            if (GET_PAPER_CONFIG != null && GET_CONFIGURATION_SECTION != null && GET_BOOLEAN != null) {
+            if (GET_PAPER_CONFIG != null) {
                 Object paperConfig = GET_PAPER_CONFIG.invoke(spigot);
-                proxies = GET_CONFIGURATION_SECTION.invoke(paperConfig, "proxies");
-                if (proxies != null) {
-                    boolean velocityEnabled = (boolean) GET_BOOLEAN.invoke(proxies, "velocity.enabled");
-                    boolean velocityOnline = (boolean) GET_BOOLEAN.invoke(proxies, "velocity.online-mode");
-                    if (velocityEnabled && velocityOnline) {
-                        return true;
+                if (paperConfig instanceof ConfigurationSection) {
+                    ConfigurationSection section = (ConfigurationSection) paperConfig;
+                    proxies = section.getConfigurationSection("proxies");
+                    if (proxies != null) {
+                        boolean velocityEnabled = proxies.getBoolean("velocity.enabled");
+                        boolean velocityOnline = proxies.getBoolean("velocity.online-mode");
+                        if (velocityEnabled && velocityOnline) {
+                            return true;
+                        }
                     }
                 }
             }
@@ -219,13 +206,16 @@ public class BukkitPlatform implements Platform {
         }
 
         try {
-            if (GET_SPIGOT_CONFIG != null && GET_CONFIGURATION_SECTION != null && GET_BOOLEAN != null) {
+            if (GET_SPIGOT_CONFIG != null) {
                 Object spigotConfig = GET_SPIGOT_CONFIG.invoke(spigot);
-                Object settings = GET_CONFIGURATION_SECTION.invoke(spigotConfig, "settings");
-                if (settings != null) {
-                    boolean bungee = (boolean) GET_BOOLEAN.invoke(settings, "bungeecord");
-                    if (bungee && proxies != null) {
-                        return (boolean) GET_BOOLEAN.invoke(proxies, "bungee-cord.online-mode");
+                if (spigotConfig instanceof ConfigurationSection) {
+                    ConfigurationSection section = (ConfigurationSection) spigotConfig;
+                    ConfigurationSection settings = section.getConfigurationSection("settings");
+                    if (settings != null) {
+                        boolean bungee = settings.getBoolean("bungeecord");
+                        if (bungee && proxies != null) {
+                            return proxies.getBoolean("bungee-cord.online-mode");
+                        }
                     }
                 }
             }

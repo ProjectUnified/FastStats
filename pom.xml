@@ -33,6 +33,7 @@
         <module>gson</module>
         <module>bukkit</module>
         <module>net</module>
+        <module>httpclient</module>
         <module>bom</module>
     </modules>
 

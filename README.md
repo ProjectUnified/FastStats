@@ -4,17 +4,18 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Modules
 
-| Module     | Artifact           | Description                                                                                                               |
-|------------|--------------------|---------------------------------------------------------------------------------------------------------------------------|
-| **core**   | `faststats-core`   | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `JsonSerializer`, `HttpExecutor`, `TaskScheduler` |
-| **gson**   | `faststats-gson`   | `JsonSerializer` implementation using [Google Gson](https://github.com/google/gson)                                       |
-| **net**    | `faststats-net`    | `HttpExecutor` implementation using `java.net.HttpURLConnection`                                                          |
-| **bukkit** | `faststats-bukkit` | `Platform` implementation for Bukkit/Spigot/Paper servers                                                                 |
-| **bom**    | `faststats-bom`    | Bill of Materials (BOM) to manage versions of all FastStats modules                                                        |
+| Module         | Artifact               | Description                                                                                                               |
+|----------------|------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **core**       | `faststats-core`       | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `JsonSerializer`, `HttpExecutor`, `TaskScheduler` |
+| **gson**       | `faststats-gson`       | `JsonSerializer` implementation using [Google Gson](https://github.com/google/gson)                                       |
+| **net**        | `faststats-net`        | `HttpExecutor` implementation using `java.net.HttpURLConnection`                                                          |
+| **httpclient** | `faststats-httpclient` | `HttpExecutor` implementation using standard `java.net.http.HttpClient` (Requires Java 11+)                               |
+| **bukkit**     | `faststats-bukkit`     | `Platform` implementation for Bukkit/Spigot/Paper servers                                                                 |
+| **bom**        | `faststats-bom`        | Bill of Materials (BOM) to manage versions of all FastStats modules                                                        |
 
 ## Requirements
 
-- Java 8 or higher
+- Java 8 or higher (except for the `httpclient` module which requires Java 11 or higher)
 
 ## Installation
 
@@ -48,10 +49,16 @@ Then, add the modules you need to your `pom.xml` without specifying versions:
     <artifactId>faststats-gson</artifactId>
 </dependency>
 
-<!-- HTTP executor -->
+<!-- HTTP executor (Java 8+) -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-net</artifactId>
+</dependency>
+
+<!-- HTTP executor (Java 11+) -->
+<dependency>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-httpclient</artifactId>
 </dependency>
 
 <!-- Platform -->

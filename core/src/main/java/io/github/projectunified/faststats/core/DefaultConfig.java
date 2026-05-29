@@ -119,12 +119,15 @@ public class DefaultConfig implements Config {
             properties.setProperty("serverId", serverId.toString());
         }
 
-        boolean enabled = getBooleanProperty(properties, "enabled", !firstRun, saveConfig);
+        boolean enabled = getBooleanProperty(properties, "enabled", true, saveConfig);
         if (externallyManaged) {
             enabled = externallyEnabled;
             properties.remove("enabled");
         } else {
             properties.setProperty("enabled", Boolean.toString(enabled));
+        }
+        if (firstRun) {
+            enabled = false;
         }
 
         boolean additionalMetrics = getBooleanProperty(properties, "submitAdditionalMetrics", true, saveConfig);

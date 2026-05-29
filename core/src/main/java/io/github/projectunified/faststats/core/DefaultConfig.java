@@ -7,6 +7,7 @@ import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,30 +34,44 @@ public class DefaultConfig implements Config {
             "# For more information, visit: https://faststats.dev/info"
     };
 
+    private final Path file;
+    private final String[] comment;
+    private final boolean externallyManaged;
+    private final Properties properties;
+    private final boolean firstRun;
+
     private final UUID serverId;
     private final boolean additionalMetrics;
     private final boolean debug;
     private final boolean enabled;
     private final boolean errorTracking;
-    private final boolean firstRun;
 
     /**
      * Constructs a new {@link DefaultConfig} instance.
      *
+     * @param file              the config file path
+     * @param comment           the comment header
+     * @param externallyManaged true if configuration is externally managed
+     * @param properties        the raw properties
+     * @param firstRun          whether it is the first time running stats
      * @param serverId          the server ID
      * @param additionalMetrics whether to submit additional metrics
      * @param debug             whether debug logging is enabled
      * @param enabled           whether metrics collection is enabled
      * @param errorTracking     whether to track errors
-     * @param firstRun          whether it is the first time running stats
      */
-    public DefaultConfig(UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled, boolean errorTracking, boolean firstRun) {
+    public DefaultConfig(Path file, String[] comment, boolean externallyManaged, Properties properties, boolean firstRun,
+                         UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled, boolean errorTracking) {
+        this.file = file;
+        this.comment = comment;
+        this.externallyManaged = externallyManaged;
+        this.properties = properties;
+        this.firstRun = firstRun;
         this.serverId = serverId;
         this.additionalMetrics = additionalMetrics;
         this.debug = debug;
         this.enabled = enabled;
         this.errorTracking = errorTracking;
-        this.firstRun = firstRun;
     }
 
     /**
@@ -95,35 +110,47 @@ public class DefaultConfig implements Config {
                     saveConfig.set(true);
                 }
                 serverId = UUID.fromString(corrected);
+                properties.setProperty("serverId", corrected);
             } catch (IllegalArgumentException e) {
                 saveConfig.set(true);
                 serverId = UUID.randomUUID();
+                properties.setProperty("serverId", serverId.toString());
             }
         } else {
             saveConfig.set(true);
             serverId = UUID.randomUUID();
+            properties.setProperty("serverId", serverId.toString());
         }
 
-        boolean enabled = externallyManaged ? externallyEnabled : getBooleanProperty(properties, "enabled", !firstRun, saveConfig);
+        boolean enabled = getBooleanProperty(properties, "enabled", !firstRun, saveConfig);
+        if (externallyManaged) {
+            enabled = externallyEnabled;
+            properties.remove("enabled");
+        } else {
+            properties.setProperty("enabled", Boolean.toString(enabled));
+        }
+
         boolean errorTracking = getBooleanProperty(properties, "submitErrors", true, saveConfig);
         boolean additionalMetrics = getBooleanProperty(properties, "submitAdditionalMetrics", true, saveConfig);
         boolean debug = getBooleanProperty(properties, "debug", false, saveConfig);
 
         if (saveConfig.get()) {
             try {
-                save(file, externallyManaged, comment, serverId, enabled, errorTracking, additionalMetrics, debug);
+                save(file, comment, properties);
             } catch (IOException e) {
                 throw new RuntimeException("Failed to save metrics config", e);
             }
         }
 
-        return new DefaultConfig(serverId, additionalMetrics, debug, enabled, errorTracking, firstRun);
+        return new DefaultConfig(file, comment, externallyManaged, properties, firstRun,
+                serverId, additionalMetrics, debug, enabled, errorTracking);
     }
 
     private static boolean getBooleanProperty(Properties properties, String key, boolean defaultValue, AtomicBoolean saveConfig) {
         String value = properties.getProperty(key);
         if (value == null) {
             saveConfig.set(true);
+            properties.setProperty(key, Boolean.toString(defaultValue));
             return defaultValue;
         }
         return Boolean.parseBoolean(value);
@@ -142,22 +169,12 @@ public class DefaultConfig implements Config {
         }
     }
 
-    private static void save(Path file, boolean externallyManaged, String[] comment, UUID serverId, boolean enabled, boolean errorTracking, boolean additionalMetrics, boolean debug) throws IOException {
+    private static void save(Path file, String[] comment, Properties properties) throws IOException {
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }
         try (OutputStream out = Files.newOutputStream(file);
              OutputStreamWriter writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
-            Properties properties = new Properties();
-
-            properties.setProperty("serverId", serverId.toString());
-            if (!externallyManaged) {
-                properties.setProperty("enabled", Boolean.toString(enabled));
-            }
-            properties.setProperty("submitErrors", Boolean.toString(errorTracking));
-            properties.setProperty("submitAdditionalMetrics", Boolean.toString(additionalMetrics));
-            properties.setProperty("debug", Boolean.toString(debug));
-
             String commentStr = comment != null ? String.join("\n", comment) : null;
             properties.store(writer, commentStr);
         }
@@ -195,5 +212,28 @@ public class DefaultConfig implements Config {
      */
     public boolean isErrorTracking() {
         return errorTracking;
+    }
+
+    @Override
+    public void setDefaultProperty(Map<String, String> properties) {
+        boolean changed = false;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (!this.properties.containsKey(entry.getKey())) {
+                this.properties.setProperty(entry.getKey(), entry.getValue());
+                changed = true;
+            }
+        }
+        if (changed) {
+            try {
+                save(file, comment, this.properties);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to save default property to config", e);
+            }
+        }
+    }
+
+    @Override
+    public String getProperty(String key, String defaultValue) {
+        return properties.getProperty(key, defaultValue);
     }
 }

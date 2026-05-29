@@ -2,11 +2,12 @@ package io.github.projectunified.faststats.core;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 public class MockPlatform implements Platform {
     final MockConfig config = new MockConfig();
     final Collection<Metric<?>> metrics = new ArrayList<>();
-    final java.util.List<String> loggedInfos = new ArrayList<>();
+    final List<String> loggedInfos = new ArrayList<>();
 
     @Override
     public Config getConfig() {

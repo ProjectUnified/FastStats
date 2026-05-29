@@ -1,5 +1,6 @@
 package io.github.projectunified.faststats.core;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -44,4 +45,19 @@ public interface Config {
     }
 
 
+    /**
+     * Sets default properties.
+     *
+     * @param properties the default properties map
+     */
+    void setDefaultProperty(Map<String, String> properties);
+
+    /**
+     * Gets a property value.
+     *
+     * @param key          the key
+     * @param defaultValue the default value to return if not present
+     * @return the property value or the default value
+     */
+    String getProperty(String key, String defaultValue);
 }

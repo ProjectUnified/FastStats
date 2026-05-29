@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -77,7 +78,7 @@ public class HttpClientSubmitterTest {
         // Decompress the received body
         String decompressed;
         try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-             GZIPInputStream gis = new GZIPInputStream(new java.io.ByteArrayInputStream(receivedBody))) {
+             GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(receivedBody))) {
             byte[] buffer = new byte[1024];
             int len;
             while ((len = gis.read(buffer)) > 0) {

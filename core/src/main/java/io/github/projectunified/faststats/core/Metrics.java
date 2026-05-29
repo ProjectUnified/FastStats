@@ -20,9 +20,12 @@ public final class Metrics {
         this.scheduler = builder.scheduler;
         this.additionalMetrics = Collections.unmodifiableList(new ArrayList<>(builder.additionalMetrics));
         this.features = Collections.unmodifiableList(new ArrayList<>(builder.features));
+        Map<String, String> defaultProperties = new LinkedHashMap<>();
         for (Feature feature : this.features) {
             feature.setMetrics(this);
+            defaultProperties.putAll(feature.getDefaultProperties());
         }
+        this.platform.getConfig().setDefaultProperty(defaultProperties);
     }
 
     /**
@@ -32,6 +35,15 @@ public final class Metrics {
      */
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * Gets the configuration settings.
+     *
+     * @return the configuration
+     */
+    public Config getConfig() {
+        return platform.getConfig();
     }
 
     /**

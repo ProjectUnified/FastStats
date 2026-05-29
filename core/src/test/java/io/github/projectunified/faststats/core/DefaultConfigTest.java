@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -58,5 +60,26 @@ public class DefaultConfigTest {
         assertFalse(config.isSubmitAdditionalMetrics());
         assertFalse(config.isErrorTracking());
         assertTrue(config.isDebug());
+    }
+
+    @Test
+    public void testCustomProperties(@TempDir Path tempDir) throws Exception {
+        Path configFile = tempDir.resolve("config.properties");
+        DefaultConfig config = DefaultConfig.read(configFile);
+
+        Map<String, String> props1 = new HashMap<>();
+        props1.put("my.custom.prop", "foo");
+        config.setDefaultProperty(props1);
+        assertEquals("foo", config.getProperty("my.custom.prop", "default"));
+
+        // Overwrite check (should not change because it's already set)
+        Map<String, String> props2 = new HashMap<>();
+        props2.put("my.custom.prop", "bar");
+        config.setDefaultProperty(props2);
+        assertEquals("foo", config.getProperty("my.custom.prop", "default"));
+
+        // Re-read file to verify persistence
+        DefaultConfig reRead = DefaultConfig.read(configFile);
+        assertEquals("foo", reRead.getProperty("my.custom.prop", "default"));
     }
 }

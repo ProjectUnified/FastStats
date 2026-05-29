@@ -43,12 +43,5 @@ public interface Config {
         return false;
     }
 
-    /**
-     * Checks if the configuration is externally managed.
-     *
-     * @return true if externally managed, false otherwise
-     */
-    default boolean isExternallyManaged() {
-        return false;
-    }
+
 }

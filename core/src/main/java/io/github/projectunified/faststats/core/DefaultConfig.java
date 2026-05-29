@@ -39,7 +39,6 @@ public class DefaultConfig implements Config {
     private final boolean enabled;
     private final boolean errorTracking;
     private final boolean firstRun;
-    private final boolean externallyManaged;
 
     /**
      * Constructs a new {@link DefaultConfig} instance.
@@ -50,17 +49,14 @@ public class DefaultConfig implements Config {
      * @param enabled           whether metrics collection is enabled
      * @param errorTracking     whether to track errors
      * @param firstRun          whether it is the first time running stats
-     * @param externallyManaged whether config is externally managed
      */
-    public DefaultConfig(UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled,
-                         boolean errorTracking, boolean firstRun, boolean externallyManaged) {
+    public DefaultConfig(UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled, boolean errorTracking, boolean firstRun) {
         this.serverId = serverId;
         this.additionalMetrics = additionalMetrics;
         this.debug = debug;
         this.enabled = enabled;
         this.errorTracking = errorTracking;
         this.firstRun = firstRun;
-        this.externallyManaged = externallyManaged;
     }
 
     /**
@@ -121,7 +117,7 @@ public class DefaultConfig implements Config {
             }
         }
 
-        return new DefaultConfig(serverId, additionalMetrics, debug, enabled, errorTracking, firstRun, externallyManaged);
+        return new DefaultConfig(serverId, additionalMetrics, debug, enabled, errorTracking, firstRun);
     }
 
     private static boolean getBooleanProperty(Properties properties, String key, boolean defaultValue, AtomicBoolean saveConfig) {
@@ -204,15 +200,5 @@ public class DefaultConfig implements Config {
     @Override
     public boolean isFirstRun() {
         return firstRun;
-    }
-
-    /**
-     * Checks if the configuration is externally managed.
-     *
-     * @return true if externally managed, false otherwise
-     */
-    @Override
-    public boolean isExternallyManaged() {
-        return externallyManaged;
     }
 }

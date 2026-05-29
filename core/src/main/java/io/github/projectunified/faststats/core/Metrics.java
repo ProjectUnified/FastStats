@@ -5,7 +5,7 @@ import java.util.*;
 /**
  * Main coordinator class that manages configuration, collects metrics, and submits telemetry payloads.
  */
-public class Metrics {
+public final class Metrics {
     private final Platform platform;
     private final Serializer serializer;
     private final Submitter submitter;
@@ -223,7 +223,7 @@ public class Metrics {
     /**
      * Builder class for {@link Metrics}.
      */
-    public static class Builder {
+    public static final class Builder {
         private final List<Metric<?>> additionalMetrics = new ArrayList<>();
         private final List<Feature> features = new ArrayList<>();
         private Platform platform;

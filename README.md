@@ -4,13 +4,9 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Differences from [`faststats-java`](https://github.com/faststats-dev/faststats-java)
 
-- **Modular Submodules**: Key features, serialization engines, network submitters, and server platforms are split into
-  individual submodules. Users can import only what is required for their specific use cases instead of importing
-  monolithic dependencies.
-- **Java 8 Support**: The library targets Java 8 compatibility across all modules (except `faststats-httpclient` which
-  requires Java 11+).
-- **Separated Error Tracker**: The error tracking mechanism is isolated as a standalone, optional feature module (
-  `faststats-error-tracker`) instead of being bundled directly in core.
+- **Modular Sub-modules**: Key features, serialization engines, network submitters, and server platforms are split into individual sub-modules. Users can import only what is required for their specific use cases instead of importing monolithic dependencies.
+- **Java 8 Support**: The library targets Java 8 compatibility across all modules (except `faststats-httpclient` which requires Java 11+).
+- **Separated Error Tracker**: The error tracking mechanism is isolated as a standalone, optional feature module (`faststats-error-tracker`) instead of being bundled directly in core.
 
 ## Installation
 
@@ -18,7 +14,6 @@ It is recommended to import `faststats-bom` in your `<dependencyManagement>` sec
 FastStats modules:
 
 ```xml
-
 <dependencyManagement>
     <dependencies>
         <dependency>
@@ -35,47 +30,45 @@ FastStats modules:
 Then, add the modules you need to your `pom.xml` without specifying versions:
 
 ```xml
-
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-core</artifactId>
 </dependency>
 
-        <!-- JSON serialization -->
+<!-- JSON serialization -->
 <dependency>
-<groupId>io.github.projectunified</groupId>
-<artifactId>faststats-gson</artifactId>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-gson</artifactId>
 </dependency>
 
-        <!-- Submitter (Java 8+) -->
+<!-- Submitter (Java 8+) -->
 <dependency>
-<groupId>io.github.projectunified</groupId>
-<artifactId>faststats-net</artifactId>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-net</artifactId>
 </dependency>
 
-        <!-- Submitter (Java 11+) -->
+<!-- Submitter (Java 11+) -->
 <dependency>
-<groupId>io.github.projectunified</groupId>
-<artifactId>faststats-httpclient</artifactId>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-httpclient</artifactId>
 </dependency>
 
-        <!-- Error Tracker Feature -->
+<!-- Error Tracker Feature -->
 <dependency>
-<groupId>io.github.projectunified</groupId>
-<artifactId>faststats-error-tracker</artifactId>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-error-tracker</artifactId>
 </dependency>
 
-        <!-- Platform -->
+<!-- Platform -->
 <dependency>
-<groupId>io.github.projectunified</groupId>
-<artifactId>faststats-bukkit</artifactId>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-bukkit</artifactId>
 </dependency>
 ```
 
 ## Quick Start
 
 ### 1. Basic Telemetry
-
 The core library allows tracking standard metrics periodically. Below is a basic setup for a Bukkit plugin:
 
 ```java
@@ -101,10 +94,7 @@ public class MyPlugin extends JavaPlugin {
 ```
 
 ### 2. Error Tracking Feature (`ErrorTracker`)
-
-To track uncaught exceptions and manually submit handled errors, include the `faststats-error-tracker` module and
-register the `ErrorTracker` feature. It automatically redacts sensitive information (like user homes, Discord webhooks,
-IPs, etc.) and allows ignoring specific error types or message patterns.
+To track uncaught exceptions and manually submit handled errors, include the `faststats-error-tracker` module and register the `ErrorTracker` feature. It automatically redacts sensitive information (like user homes, Discord webhooks, IPs, etc.) and allows ignoring specific error types or message patterns.
 
 ```java
 import io.github.projectunified.faststats.errortracker.ErrorTracker;
@@ -115,75 +105,36 @@ ErrorTracker errorTracker = ErrorTracker.contextAware()
         .ignoreError("Some pattern to ignore")
         .anonymize("my-sensitive-regex", "[hidden]");
 
-        metrics =Metrics.
-
-        builder()
-        .
-
-        platform(new BukkitPlatform(this))
-        .
-
-        serializer(new GsonSerializer())
-        .
-
-        submitter(new NetSubmitter("YOUR_TOKEN"))
-        .
-
-        addFeature(errorTracker)
-        .
-
-        build();
-metrics.
-
-        start();
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addFeature(errorTracker)
+        .build();
+metrics.start();
 
 // Tracking handled errors manually anywhere in your code:
-try{
-        // some code
-        }catch(
-        Exception e){
-        metrics.
-
-        getFeature(ErrorTracker .class).
-
-        ifPresent(tracker ->tracker.
-
-        trackError(e));
-        }
+try {
+    // some code
+} catch (Exception e) {
+    metrics.getFeature(ErrorTracker.class).ifPresent(tracker -> tracker.trackError(e));
+}
 ```
 
 ### 3. Paper Exception Tracking Feature (`PaperErrorTracker`)
-
-If you are running on Paper server software, you can include the `faststats-paper` module to automatically intercept
-server plugin exceptions and forward them to the `ErrorTracker`.
+If you are running on Paper server software, you can include the `faststats-paper` module to automatically intercept server plugin exceptions and forward them to the `ErrorTracker`.
 
 ```java
 import io.github.projectunified.faststats.errortracker.ErrorTracker;
 import io.github.projectunified.faststats.paper.PaperErrorTracker;
 
 // Inside onEnable:
-metrics =Metrics.
-
-        builder()
-        .
-
-        platform(new BukkitPlatform(this))
-        .
-
-        serializer(new GsonSerializer())
-        .
-
-        submitter(new NetSubmitter("YOUR_TOKEN"))
-        .
-
-        addFeature(ErrorTracker.contextAware())
-        .
-
-        addFeature(new PaperErrorTracker(this))
-        .
-
-        build();
-metrics.
-
-        start();
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addFeature(ErrorTracker.contextAware())
+        .addFeature(new PaperErrorTracker(this))
+        .build();
+metrics.start();
 ```

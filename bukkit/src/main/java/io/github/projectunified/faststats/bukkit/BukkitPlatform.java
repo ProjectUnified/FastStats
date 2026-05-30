@@ -134,16 +134,19 @@ public class BukkitPlatform implements Platform {
 
         // Online Mode
         defaultMetrics.add(Metric.bool("online_mode", () -> {
-            try {
-                if (GET_SERVER_CONFIG != null) {
+            boolean proxyOnlineMode = false;
+            if (GET_SERVER_CONFIG != null) {
+                try {
                     Object serverConfig = GET_SERVER_CONFIG.invoke(server);
                     Method isProxyOnlineMode = serverConfig.getClass().getMethod("isProxyOnlineMode");
-                    return (Boolean) isProxyOnlineMode.invoke(serverConfig);
+                    proxyOnlineMode = (Boolean) isProxyOnlineMode.invoke(serverConfig);
+                } catch (Throwable ignored) {
                 }
-            } catch (Throwable ignored) {
+            } else {
+                proxyOnlineMode = isProxyOnlineMode();
             }
 
-            return isProxyOnlineMode() || server.getOnlineMode();
+            return proxyOnlineMode || server.getOnlineMode();
         }));
 
         // Player Count

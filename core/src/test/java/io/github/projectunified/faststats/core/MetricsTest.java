@@ -73,7 +73,7 @@ public class MetricsTest {
 
         Map<String, Object> dataMap = new LinkedHashMap<>();
         dataMap.put("custom_data", customPayload);
-        metrics.submit(dataMap);
+        metrics.submit(dataMap, false);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("custom_data={custom_key=custom_val}"));
@@ -280,7 +280,7 @@ public class MetricsTest {
             }
 
             public void triggerSubmit(Map<String, Object> dataMap) throws Exception {
-                submit(dataMap);
+                submit(dataMap, false);
             }
         }
 

@@ -391,6 +391,6 @@ public class ErrorTracker extends Feature {
             return;
         }
 
-        submit(Collections.singletonMap("errors", errorsList));
+        submit(Collections.singletonMap("errors", errorsList), true);
     }
 }

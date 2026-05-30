@@ -166,58 +166,18 @@ public final class Metrics {
      * @throws Exception if data collection or submission fails
      */
     void submit() throws Exception {
-        Config config = platform.getConfig();
-        if (!config.isEnabled()) {
-            return;
-        }
-
-        Map<String, Object> data = new LinkedHashMap<>();
-
-        data.put("core_count", Runtime.getRuntime().availableProcessors());
-        data.put("java_vendor", System.getProperty("java.vendor"));
-        data.put("java_version", System.getProperty("java.version"));
-        data.put("os_arch", System.getProperty("os.arch"));
-        data.put("os_name", System.getProperty("os.name"));
-        data.put("os_version", System.getProperty("os.version"));
-
-        Collection<Metric<?>> platformMetrics = platform.getMetrics();
-        if (platformMetrics != null) {
-            for (Metric<?> metric : platformMetrics) {
-                try {
-                    Object val = metric.getValue();
-                    if (val != null) {
-                        data.put(metric.getName(), val);
-                    }
-                } catch (Exception e) {
-                    logError("Failed to collect platform metric " + metric.getName(), e);
-                }
-            }
-        }
-
-        if (config.isSubmitAdditionalMetrics()) {
-            for (Metric<?> metric : additionalMetrics) {
-                try {
-                    Object val = metric.getValue();
-                    if (val != null) {
-                        data.put(metric.getName(), val);
-                    }
-                } catch (Exception e) {
-                    logError("Failed to collect metric " + metric.getName(), e);
-                }
-            }
-        }
-
-        submit(Collections.singletonMap("data", data));
+        submit(Collections.emptyMap(), true);
     }
 
     /**
      * Directly serializes and submits the given map payload.
      * Injects the server identifier automatically.
      *
-     * @param dataMap a map of keys to their data maps, each nested in the root payload
+     * @param dataMap     a map of keys to their data maps, each nested in the root payload
+     * @param includeData whether to include/append the platform and default metrics data block
      * @throws Exception if submission fails
      */
-    void submit(Map<String, Object> dataMap) throws Exception {
+    void submit(Map<String, Object> dataMap, boolean includeData) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");
@@ -226,6 +186,44 @@ public final class Metrics {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("identifier", config.getServerId().toString());
         payload.putAll(dataMap);
+
+        if (includeData) {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("core_count", Runtime.getRuntime().availableProcessors());
+            data.put("java_vendor", System.getProperty("java.vendor"));
+            data.put("java_version", System.getProperty("java.version"));
+            data.put("os_arch", System.getProperty("os.arch"));
+            data.put("os_name", System.getProperty("os.name"));
+            data.put("os_version", System.getProperty("os.version"));
+
+            Collection<Metric<?>> platformMetrics = platform.getMetrics();
+            if (platformMetrics != null) {
+                for (Metric<?> metric : platformMetrics) {
+                    try {
+                        Object val = metric.getValue();
+                        if (val != null) {
+                            data.put(metric.getName(), val);
+                        }
+                    } catch (Exception e) {
+                        logError("Failed to collect platform metric " + metric.getName(), e);
+                    }
+                }
+            }
+
+            if (config.isSubmitAdditionalMetrics()) {
+                for (Metric<?> metric : additionalMetrics) {
+                    try {
+                        Object val = metric.getValue();
+                        if (val != null) {
+                            data.put(metric.getName(), val);
+                        }
+                    } catch (Exception e) {
+                        logError("Failed to collect metric " + metric.getName(), e);
+                    }
+                }
+            }
+            payload.put("data", data);
+        }
 
         String json = serializer.serialize(payload);
         logInfo("Submitting metrics payload: " + json);

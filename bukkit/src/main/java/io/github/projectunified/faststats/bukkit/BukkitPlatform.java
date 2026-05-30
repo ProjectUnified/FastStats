@@ -143,11 +143,7 @@ public class BukkitPlatform implements Platform {
             } catch (Throwable ignored) {
             }
 
-            try {
-                return isProxyOnlineMode();
-            } catch (Exception ex) {
-                return server.getOnlineMode();
-            }
+            return isProxyOnlineMode() || server.getOnlineMode();
         }));
 
         // Player Count

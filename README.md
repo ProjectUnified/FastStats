@@ -2,22 +2,6 @@
 
 A client implementation for [FastStats](https://faststats.dev)
 
-## Modules
-
-| Module            | Artifact                  | Description                                                                                                        |
-|-------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------|
-| **core**          | `faststats-core`          | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `Serializer`, `Submitter`, `TaskScheduler` |
-| **gson**          | `faststats-gson`          | `Serializer` implementation using [Google Gson](https://github.com/google/gson)                                    |
-| **net**           | `faststats-net`           | `Submitter` implementation using `java.net.HttpURLConnection` (NetSubmitter)                                       |
-| **httpclient**    | `faststats-httpclient`    | `Submitter` implementation using standard `java.net.http.HttpClient` (HttpClientSubmitter, Requires Java 11+)      |
-| **bukkit**        | `faststats-bukkit`        | `Platform` implementation for Bukkit/Spigot/Paper servers                                                          |
-| **error-tracker** | `faststats-error-tracker` | Uncaught and handled exception tracking mechanism implemented as a `Feature`                                        |
-| **bom**           | `faststats-bom`           | Bill of Materials (BOM) to manage versions of all FastStats modules                                                |
-
-## Requirements
-
-- Java 8 or higher (except for the `httpclient` module which requires Java 11 or higher)
-
 ## Installation
 
 It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of
@@ -78,7 +62,8 @@ Then, add the modules you need to your `pom.xml` without specifying versions:
 
 ## Quick Start
 
-### Bukkit Plugin
+### 1. Basic Telemetry
+The core library allows tracking standard metrics periodically. Below is a basic setup for a Bukkit plugin:
 
 ```java
 public class MyPlugin extends JavaPlugin {
@@ -90,7 +75,6 @@ public class MyPlugin extends JavaPlugin {
                 .platform(new BukkitPlatform(this))
                 .serializer(new GsonSerializer())
                 .submitter(new NetSubmitter("YOUR_TOKEN"))
-                .addFeature(ErrorTracker.contextAware()) // Only use this if you use Error Tracker
                 .addMetric(Metric.string("my_feature", () -> "enabled"))
                 .build();
         metrics.start();
@@ -101,4 +85,50 @@ public class MyPlugin extends JavaPlugin {
         metrics.shutdown();
     }
 }
+```
+
+### 2. Error Tracking Feature (`ErrorTracker`)
+To track uncaught exceptions and manually submit handled errors, include the `faststats-error-tracker` module and register the `ErrorTracker` feature. It automatically redacts sensitive information (like user homes, Discord webhooks, IPs, etc.) and allows ignoring specific error types or message patterns.
+
+```java
+import io.github.projectunified.faststats.errortracker.ErrorTracker;
+
+// Inside onEnable:
+ErrorTracker errorTracker = ErrorTracker.contextAware()
+        .ignoreError(NullPointerException.class)
+        .ignoreError("Some pattern to ignore")
+        .anonymize("my-sensitive-regex", "[hidden]");
+
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addFeature(errorTracker)
+        .build();
+metrics.start();
+
+// Tracking handled errors manually anywhere in your code:
+try {
+    // some code
+} catch (Exception e) {
+    metrics.getFeature(ErrorTracker.class).ifPresent(tracker -> tracker.trackError(e));
+}
+```
+
+### 3. Paper Exception Tracking Feature (`PaperErrorTracker`)
+If you are running on Paper server software, you can include the `faststats-paper` module to automatically intercept server plugin exceptions and forward them to the `ErrorTracker`.
+
+```java
+import io.github.projectunified.faststats.errortracker.ErrorTracker;
+import io.github.projectunified.faststats.paper.PaperErrorTracker;
+
+// Inside onEnable:
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addFeature(ErrorTracker.contextAware())
+        .addFeature(new PaperErrorTracker(this))
+        .build();
+metrics.start();
 ```

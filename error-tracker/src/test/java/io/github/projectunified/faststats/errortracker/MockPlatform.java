@@ -16,13 +16,16 @@ class MockPlatform implements Platform {
     }
 
     @Override
-    public void logInfo(String message) {}
+    public void logInfo(String message) {
+    }
 
     @Override
-    public void logWarning(String message) {}
+    public void logWarning(String message) {
+    }
 
     @Override
-    public void logError(String message, Throwable throwable) {}
+    public void logError(String message, Throwable throwable) {
+    }
 
     @Override
     public Collection<Metric<?>> getMetrics() {

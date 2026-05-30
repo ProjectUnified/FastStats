@@ -7,16 +7,16 @@ import java.util.Map;
 import java.util.UUID;
 
 class MockConfig implements Config {
-    private boolean enabled = true;
     private final Map<String, String> properties = new HashMap<>();
-
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-    }
+    private boolean enabled = true;
 
     @Override
     public boolean isEnabled() {
         return this.enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     @Override

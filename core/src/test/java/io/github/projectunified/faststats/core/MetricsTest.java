@@ -321,7 +321,8 @@ public class MetricsTest {
         SimpleSerializer serializer = new SimpleSerializer();
         MockTaskScheduler scheduler = new MockTaskScheduler();
 
-        class AnotherFeature extends Feature {}
+        class AnotherFeature extends Feature {
+        }
         AnotherFeature feature = new AnotherFeature();
 
         class FinderFeature extends Feature {
@@ -330,7 +331,8 @@ public class MetricsTest {
                 assertSame(expected, getFeature(AnotherFeature.class).get());
                 assertTrue(getFeature(Feature.class).isPresent());
 
-                class UnregisteredFeature extends Feature {}
+                class UnregisteredFeature extends Feature {
+                }
                 assertFalse(getFeature(UnregisteredFeature.class).isPresent());
             }
         }
@@ -352,7 +354,8 @@ public class MetricsTest {
         assertSame(feature, metrics.getFeature(AnotherFeature.class).get());
         assertTrue(metrics.getFeature(Feature.class).isPresent());
 
-        class UnregisteredFeature extends Feature {}
+        class UnregisteredFeature extends Feature {
+        }
         assertFalse(metrics.getFeature(UnregisteredFeature.class).isPresent());
 
         // Test from within FinderFeature

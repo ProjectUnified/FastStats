@@ -2,6 +2,12 @@
 
 A client implementation for [FastStats](https://faststats.dev)
 
+## Differences from [`faststats-java`](https://github.com/faststats-dev/faststats-java)
+
+- **Modular Sub-modules**: Key features, serialization engines, network submitters, and server platforms are split into individual sub-modules. Users can import only what is required for their specific use cases instead of importing monolithic dependencies.
+- **Java 8 Support**: The library targets Java 8 compatibility across all modules (except `faststats-httpclient` which requires Java 11+).
+- **Separated Error Tracker**: The error tracking mechanism is isolated as a standalone, optional feature module (`faststats-error-tracker`) instead of being bundled directly in core.
+
 ## Installation
 
 It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of

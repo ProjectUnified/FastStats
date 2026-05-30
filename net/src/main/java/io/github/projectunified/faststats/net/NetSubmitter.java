@@ -3,8 +3,7 @@ package io.github.projectunified.faststats.net;
 import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Submitter;
 
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -84,7 +83,25 @@ public class NetSubmitter implements Submitter {
 
         int responseCode = connection.getResponseCode();
         if (responseCode < 200 || responseCode >= 300) {
-            throw new Exception("HTTP request failed with status code: " + responseCode);
+            String responseBody = "";
+            try (InputStream errorStream = connection.getErrorStream() != null ? connection.getErrorStream() : connection.getInputStream()) {
+                if (errorStream != null) {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream, StandardCharsets.UTF_8))) {
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line).append("\n");
+                        }
+                        responseBody = sb.toString().trim();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            if (!responseBody.isEmpty()) {
+                throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody + ")");
+            } else {
+                throw new Exception("HTTP request failed with status code: " + responseCode);
+            }
         }
     }
 }

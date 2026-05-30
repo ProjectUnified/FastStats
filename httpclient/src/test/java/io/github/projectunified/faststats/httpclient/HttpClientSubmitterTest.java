@@ -47,7 +47,15 @@ public class HttpClientSubmitterTest {
                 receivedBody = bos.toByteArray();
             }
 
-            exchange.sendResponseHeaders(responseStatus, 0);
+            if (responseStatus >= 200 && responseStatus < 300) {
+                exchange.sendResponseHeaders(responseStatus, 0);
+            } else {
+                byte[] responseBytes = "Error Details Here".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(responseStatus, responseBytes.length);
+                try (java.io.OutputStream os = exchange.getResponseBody()) {
+                    os.write(responseBytes);
+                }
+            }
             exchange.close();
         });
         server.start();
@@ -92,10 +100,12 @@ public class HttpClientSubmitterTest {
     @Test
     public void testFailureExecution() {
         responseStatus = 500;
-        assertThrows(Exception.class, () -> {
+        Exception exception = assertThrows(Exception.class, () -> {
             URI uri = URI.create("http://localhost:" + port + "/collect");
             HttpClientSubmitter executor = new HttpClientSubmitter(uri, "token");
             executor.execute("{}");
         });
+        assertTrue(exception.getMessage().contains("500"));
+        assertTrue(exception.getMessage().contains("Error Details Here"));
     }
 }

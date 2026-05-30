@@ -88,7 +88,12 @@ public class HttpClientSubmitter implements Submitter {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         int responseCode = response.statusCode();
         if (responseCode < 200 || responseCode >= 300) {
-            throw new Exception("HTTP request failed with status code: " + responseCode);
+            String responseBody = response.body();
+            if (responseBody != null && !responseBody.trim().isEmpty()) {
+                throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody.trim() + ")");
+            } else {
+                throw new Exception("HTTP request failed with status code: " + responseCode);
+            }
         }
     }
 }

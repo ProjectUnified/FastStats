@@ -313,4 +313,49 @@ public class MetricsTest {
         metrics.shutdown();
         assertTrue(myFeature.shutdown);
     }
+
+    @Test
+    public void testGetFeature() {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+        MockTaskScheduler scheduler = new MockTaskScheduler();
+
+        class AnotherFeature extends Feature {}
+        AnotherFeature feature = new AnotherFeature();
+
+        class FinderFeature extends Feature {
+            void assertFoundFeatures(AnotherFeature expected) {
+                assertTrue(getFeature(AnotherFeature.class).isPresent());
+                assertSame(expected, getFeature(AnotherFeature.class).get());
+                assertTrue(getFeature(Feature.class).isPresent());
+
+                class UnregisteredFeature extends Feature {}
+                assertFalse(getFeature(UnregisteredFeature.class).isPresent());
+            }
+        }
+        FinderFeature finder = new FinderFeature();
+
+        // Before builder builds and sets metrics
+        assertFalse(finder.getFeature(AnotherFeature.class).isPresent());
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(serializer)
+                .submitter(http)
+                .scheduler(scheduler)
+                .addFeature(feature)
+                .addFeature(finder)
+                .build();
+
+        assertTrue(metrics.getFeature(AnotherFeature.class).isPresent());
+        assertSame(feature, metrics.getFeature(AnotherFeature.class).get());
+        assertTrue(metrics.getFeature(Feature.class).isPresent());
+
+        class UnregisteredFeature extends Feature {}
+        assertFalse(metrics.getFeature(UnregisteredFeature.class).isPresent());
+
+        // Test from within FinderFeature
+        finder.assertFoundFeatures(feature);
+    }
 }

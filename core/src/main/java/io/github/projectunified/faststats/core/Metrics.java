@@ -47,6 +47,22 @@ public final class Metrics {
     }
 
     /**
+     * Finds a registered feature of the specified class.
+     *
+     * @param featureClass the feature class
+     * @param <T>          the feature type
+     * @return an Optional containing the feature if found, or empty otherwise
+     */
+    public <T extends Feature> Optional<T> getFeature(Class<T> featureClass) {
+        for (Feature feature : features) {
+            if (featureClass.isInstance(feature)) {
+                return Optional.of(featureClass.cast(feature));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Starts the periodic scheduling of metrics submission with default initial delay
      * (30 seconds, configurable via 'faststats.initial-delay' system property)
      * and period (30 minutes).

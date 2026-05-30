@@ -4,14 +4,15 @@ A client implementation for [FastStats](https://faststats.dev)
 
 ## Modules
 
-| Module         | Artifact               | Description                                                                                                        |
-|----------------|------------------------|--------------------------------------------------------------------------------------------------------------------|
-| **core**       | `faststats-core`       | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `Serializer`, `Submitter`, `TaskScheduler` |
-| **gson**       | `faststats-gson`       | `Serializer` implementation using [Google Gson](https://github.com/google/gson)                                    |
-| **net**        | `faststats-net`        | `Submitter` implementation using `java.net.HttpURLConnection` (NetSubmitter)                                       |
-| **httpclient** | `faststats-httpclient` | `Submitter` implementation using standard `java.net.http.HttpClient` (HttpClientSubmitter, Requires Java 11+)      |
-| **bukkit**     | `faststats-bukkit`     | `Platform` implementation for Bukkit/Spigot/Paper servers                                                          |
-| **bom**        | `faststats-bom`        | Bill of Materials (BOM) to manage versions of all FastStats modules                                                |
+| Module            | Artifact                  | Description                                                                                                        |
+|-------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------|
+| **core**          | `faststats-core`          | Core interfaces and classes: `Metrics`, `Platform`, `Config`, `Metric`, `Serializer`, `Submitter`, `TaskScheduler` |
+| **gson**          | `faststats-gson`          | `Serializer` implementation using [Google Gson](https://github.com/google/gson)                                    |
+| **net**           | `faststats-net`           | `Submitter` implementation using `java.net.HttpURLConnection` (NetSubmitter)                                       |
+| **httpclient**    | `faststats-httpclient`    | `Submitter` implementation using standard `java.net.http.HttpClient` (HttpClientSubmitter, Requires Java 11+)      |
+| **bukkit**        | `faststats-bukkit`        | `Platform` implementation for Bukkit/Spigot/Paper servers                                                          |
+| **error-tracker** | `faststats-error-tracker` | Uncaught and handled exception tracking mechanism implemented as a `Feature`                                        |
+| **bom**           | `faststats-bom`           | Bill of Materials (BOM) to manage versions of all FastStats modules                                                |
 
 ## Requirements
 
@@ -62,6 +63,12 @@ Then, add the modules you need to your `pom.xml` without specifying versions:
     <artifactId>faststats-httpclient</artifactId>
 </dependency>
 
+<!-- Error Tracker Feature -->
+<dependency>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-error-tracker</artifactId>
+</dependency>
+
 <!-- Platform -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
@@ -83,6 +90,7 @@ public class MyPlugin extends JavaPlugin {
                 .platform(new BukkitPlatform(this))
                 .serializer(new GsonSerializer())
                 .submitter(new NetSubmitter("YOUR_TOKEN"))
+                .addFeature(ErrorTracker.contextAware()) // Only use this if you use Error Tracker
                 .addMetric(Metric.string("my_feature", () -> "enabled"))
                 .build();
         metrics.start();

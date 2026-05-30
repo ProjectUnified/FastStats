@@ -336,8 +336,8 @@ public class MetricsTest {
         }
         FinderFeature finder = new FinderFeature();
 
-        // Before builder builds and sets metrics
-        assertFalse(finder.getFeature(AnotherFeature.class).isPresent());
+        // Before builder builds and sets metrics, it should throw IllegalStateException
+        assertThrows(IllegalStateException.class, () -> finder.getFeature(AnotherFeature.class));
 
         Metrics metrics = Metrics.builder()
                 .platform(platform)

@@ -7,6 +7,7 @@ import io.github.projectunified.faststats.errortracker.ErrorTracker;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 
@@ -16,6 +17,7 @@ import org.bukkit.plugin.Plugin;
  */
 public class PaperErrorTracker extends Feature implements Listener {
     private final Plugin plugin;
+    private ErrorTracker errorTracker;
 
     /**
      * Constructs a new {@link PaperErrorTracker} for the specified plugin.
@@ -29,6 +31,12 @@ public class PaperErrorTracker extends Feature implements Listener {
     @Override
     public void onStart() {
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        this.errorTracker = getFeature(ErrorTracker.class).orElse(null);
+    }
+
+    @Override
+    public void onShutdown() {
+        HandlerList.unregisterAll(this);
     }
 
     /**
@@ -38,6 +46,9 @@ public class PaperErrorTracker extends Feature implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onServerException(final ServerExceptionEvent event) {
+        if (errorTracker == null) {
+            return;
+        }
         if (!(event.getException() instanceof ServerPluginException)) {
             return;
         }
@@ -46,6 +57,6 @@ public class PaperErrorTracker extends Feature implements Listener {
             return;
         }
         Throwable report = exception.getCause() != null ? exception.getCause() : exception;
-        getFeature(ErrorTracker.class).ifPresent(tracker -> tracker.trackError(report, false));
+        errorTracker.trackError(report, false);
     }
 }

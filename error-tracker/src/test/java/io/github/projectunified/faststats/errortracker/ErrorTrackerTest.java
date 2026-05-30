@@ -196,7 +196,18 @@ public class ErrorTrackerTest {
 
     @Test
     public void testContextAttachment() {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
         ErrorTracker tracker = ErrorTracker.contextAware();
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
         assertFalse(tracker.isContextAttached());
 
         tracker.onStart();

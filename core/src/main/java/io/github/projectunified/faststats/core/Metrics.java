@@ -114,7 +114,7 @@ public final class Metrics {
             try {
                 feature.onStart();
             } catch (Throwable t) {
-                logError("Error starting feature " + feature.getKey(), t);
+                logError("Error starting feature " + feature.getClass().getSimpleName(), t);
             }
         }
     }
@@ -130,7 +130,7 @@ public final class Metrics {
             try {
                 feature.onShutdown();
             } catch (Throwable t) {
-                logError("Error shutting down feature " + feature.getKey(), t);
+                logError("Error shutting down feature " + feature.getClass().getSimpleName(), t);
             }
         }
     }
@@ -182,18 +182,17 @@ public final class Metrics {
             }
         }
 
-        submit("data", data);
+        submit(Collections.singletonMap("data", data));
     }
 
     /**
      * Directly serializes and submits the given map payload.
-     * Injects the server identifier automatically if missing.
+     * Injects the server identifier automatically.
      *
-     * @param key  the key under which the data map is nested in the root payload
-     * @param data the map data payload
+     * @param dataMap a map of keys to their data maps, each nested in the root payload
      * @throws Exception if submission fails
      */
-    void submit(String key, Map<String, Object> data) throws Exception {
+    void submit(Map<String, Map<String, Object>> dataMap) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");
@@ -201,7 +200,7 @@ public final class Metrics {
         }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("identifier", config.getServerId().toString());
-        payload.put(key, data);
+        payload.putAll(dataMap);
 
         String json = serializer.serialize(payload);
         logInfo("Submitting metrics payload: " + json);

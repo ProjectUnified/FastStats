@@ -19,13 +19,6 @@ public abstract class Feature {
     }
 
     /**
-     * Gets the unique key under which this feature's data map is nested in the root payload.
-     *
-     * @return the feature key
-     */
-    public abstract String getKey();
-
-    /**
      * Called when the Metrics coordinator is started.
      * Subclasses can override this to initialize scheduling or start listeners.
      */
@@ -40,16 +33,16 @@ public abstract class Feature {
     }
 
     /**
-     * Submits the given map data payload under the feature's key.
+     * Submits the given data map payload.
      *
-     * @param data the map data payload
+     * @param dataMap a map of keys to their data maps
      * @throws Exception if submission fails
      */
-    protected final void submit(Map<String, Object> data) throws Exception {
+    protected final void submit(Map<String, Map<String, Object>> dataMap) throws Exception {
         if (metrics == null) {
             throw new IllegalStateException("Metrics instance has not been set");
         }
-        metrics.submit(getKey(), data);
+        metrics.submit(dataMap);
     }
 
     /**

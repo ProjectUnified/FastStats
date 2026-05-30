@@ -71,7 +71,9 @@ public class MetricsTest {
         Map<String, Object> customPayload = new HashMap<>();
         customPayload.put("custom_key", "custom_val");
 
-        metrics.submit("custom_data", customPayload);
+        Map<String, Map<String, Object>> dataMap = new LinkedHashMap<>();
+        dataMap.put("custom_data", customPayload);
+        metrics.submit(dataMap);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("custom_data={custom_key=custom_val}"));
@@ -268,11 +270,6 @@ public class MetricsTest {
             boolean shutdown = false;
 
             @Override
-            public String getKey() {
-                return "custom_feature_key";
-            }
-
-            @Override
             public void onStart() {
                 started = true;
             }
@@ -282,8 +279,8 @@ public class MetricsTest {
                 shutdown = true;
             }
 
-            public void triggerSubmit(Map<String, Object> data) throws Exception {
-                submit(data);
+            public void triggerSubmit(Map<String, Map<String, Object>> dataMap) throws Exception {
+                submit(dataMap);
             }
         }
 
@@ -307,7 +304,7 @@ public class MetricsTest {
         Map<String, Object> featureData = new HashMap<>();
         featureData.put("key", "val");
 
-        myFeature.triggerSubmit(featureData);
+        myFeature.triggerSubmit(Collections.singletonMap("custom_feature_key", featureData));
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));

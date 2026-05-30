@@ -22,7 +22,7 @@ public interface TaskScheduler {
             public synchronized Task schedule(Runnable task, long initialDelayMs, long periodMs) {
                 if (executor == null) {
                     executor = Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread thread = new Thread(r, "faststats-submitter");
+                        Thread thread = new Thread(r, "faststats-thread");
                         thread.setDaemon(true);
                         return thread;
                     });

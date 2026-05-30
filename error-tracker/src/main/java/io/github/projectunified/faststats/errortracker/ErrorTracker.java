@@ -1,10 +1,13 @@
 package io.github.projectunified.faststats.errortracker;
 
 import io.github.projectunified.faststats.core.Feature;
+import io.github.projectunified.faststats.core.TaskScheduler;
 
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
@@ -34,7 +37,7 @@ public class ErrorTracker extends Feature {
     private volatile BiConsumer<ClassLoader, Throwable> errorEvent = null;
     private volatile UncaughtExceptionHandler originalHandler = null;
     private volatile boolean attached = false;
-    private ScheduledExecutorService executor;
+    private TaskScheduler.Task task;
 
     /**
      * Creates a new error tracker feature that is context-unaware.
@@ -84,30 +87,24 @@ public class ErrorTracker extends Feature {
             attachErrorContext(loader);
         }
 
-        executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "faststats-error-tracker");
-            thread.setDaemon(true);
-            return thread;
-        });
-
         long initialDelayMs = Long.getLong("faststats.initial-delay", 30) * 1000;
         long periodMs = 30 * 60 * 1000;
 
-        executor.scheduleAtFixedRate(() -> {
+        task = getScheduler().schedule(() -> {
             try {
                 submitErrors();
             } catch (Throwable t) {
                 // Ignore
             }
-        }, initialDelayMs, periodMs, TimeUnit.MILLISECONDS);
+        }, initialDelayMs, periodMs);
     }
 
     @Override
     public synchronized void onShutdown() {
         detachErrorContext();
-        if (executor != null) {
-            executor.shutdown();
-            executor = null;
+        if (task != null) {
+            task.cancel();
+            task = null;
         }
         try {
             submitErrors();

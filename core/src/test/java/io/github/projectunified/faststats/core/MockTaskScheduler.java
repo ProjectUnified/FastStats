@@ -6,11 +6,14 @@ public class MockTaskScheduler implements TaskScheduler {
     long capturedPeriod;
     boolean shutdownCalled = false;
 
+    boolean taskCancelled = false;
+
     @Override
-    public void schedule(Runnable task, long initialDelayMs, long periodMs) {
+    public TaskScheduler.Task schedule(Runnable task, long initialDelayMs, long periodMs) {
         this.scheduledTask = task;
         this.capturedInitialDelay = initialDelayMs;
         this.capturedPeriod = periodMs;
+        return () -> taskCancelled = true;
     }
 
     @Override

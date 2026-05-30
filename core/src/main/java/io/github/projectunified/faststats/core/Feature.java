@@ -55,6 +55,15 @@ public abstract class Feature {
     }
 
     /**
+     * Checks if the Metrics instance has been set.
+     *
+     * @return true if set, false otherwise
+     */
+    protected final boolean hasMetrics() {
+        return metrics != null;
+    }
+
+    /**
      * Submits the given data map payload.
      *
      * @param dataMap a map of keys to their data maps
@@ -84,5 +93,14 @@ public abstract class Feature {
      */
     public final <T extends Feature> Optional<T> getFeature(Class<T> featureClass) {
         return getMetrics().getFeature(featureClass);
+    }
+
+    /**
+     * Gets the TaskScheduler instance.
+     *
+     * @return the TaskScheduler instance
+     */
+    protected final TaskScheduler getScheduler() {
+        return getMetrics().getScheduler();
     }
 }

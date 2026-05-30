@@ -38,6 +38,15 @@ public final class Metrics {
     }
 
     /**
+     * Gets the TaskScheduler instance.
+     *
+     * @return the TaskScheduler instance
+     */
+    TaskScheduler getScheduler() {
+        return scheduler;
+    }
+
+    /**
      * Gets the configuration settings.
      *
      * @return the configuration

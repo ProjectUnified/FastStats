@@ -217,7 +217,7 @@ public final class Metrics {
      * @param dataMap a map of keys to their data maps, each nested in the root payload
      * @throws Exception if submission fails
      */
-    void submit(Map<String, Map<String, Object>> dataMap) throws Exception {
+    void submit(Map<String, Object> dataMap) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");

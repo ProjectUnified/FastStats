@@ -71,7 +71,7 @@ public class MetricsTest {
         Map<String, Object> customPayload = new HashMap<>();
         customPayload.put("custom_key", "custom_val");
 
-        Map<String, Map<String, Object>> dataMap = new LinkedHashMap<>();
+        Map<String, Object> dataMap = new LinkedHashMap<>();
         dataMap.put("custom_data", customPayload);
         metrics.submit(dataMap);
 
@@ -279,7 +279,7 @@ public class MetricsTest {
                 shutdown = true;
             }
 
-            public void triggerSubmit(Map<String, Map<String, Object>> dataMap) throws Exception {
+            public void triggerSubmit(Map<String, Object> dataMap) throws Exception {
                 submit(dataMap);
             }
         }

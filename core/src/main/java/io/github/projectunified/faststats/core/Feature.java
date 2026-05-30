@@ -60,7 +60,7 @@ public abstract class Feature {
      * @param dataMap a map of keys to their data maps
      * @throws Exception if submission fails
      */
-    protected final void submit(Map<String, Map<String, Object>> dataMap) throws Exception {
+    protected final void submit(Map<String, Object> dataMap) throws Exception {
         getMetrics().submit(dataMap);
     }
 

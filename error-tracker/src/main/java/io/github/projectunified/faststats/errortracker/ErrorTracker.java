@@ -362,7 +362,7 @@ public class ErrorTracker extends Feature {
             collected.replaceAll((k, v) -> 0);
         }
 
-        Map<String, Object> errorsMap = new LinkedHashMap<>();
+        List<Map<String, Object>> errorsList = new ArrayList<>();
 
         reportsSnapshot.forEach((hash, report) -> {
             Map<String, Object> copy = new LinkedHashMap<>(report);
@@ -372,7 +372,7 @@ public class ErrorTracker extends Feature {
             if (count > 1) {
                 copy.put("count", count);
             }
-            errorsMap.put(hash, copy);
+            errorsList.add(copy);
         });
 
         collectedSnapshot.forEach((hash, count) -> {
@@ -384,13 +384,13 @@ public class ErrorTracker extends Feature {
             if (count > 1) {
                 entry.put("count", count);
             }
-            errorsMap.put(hash, entry);
+            errorsList.add(entry);
         });
 
-        if (errorsMap.isEmpty()) {
+        if (errorsList.isEmpty()) {
             return;
         }
 
-        submit(Collections.singletonMap("errors", errorsMap));
+        submit(Collections.singletonMap("errors", errorsList));
     }
 }

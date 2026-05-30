@@ -1,6 +1,6 @@
 package io.github.projectunified.faststats.httpclient;
 
-import io.github.projectunified.faststats.core.FastStatsVersion;
+import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.ByteArrayOutputStream;
@@ -17,8 +17,6 @@ import java.util.zip.GZIPOutputStream;
  * to submit GZIP-compressed telemetry payloads.
  */
 public class HttpClientSubmitter implements Submitter {
-    private static final String DEFAULT_URL = "https://metrics.faststats.dev/v1/collect";
-
     private final HttpClient httpClient;
     private final URI uri;
     private final String token;
@@ -32,7 +30,7 @@ public class HttpClientSubmitter implements Submitter {
      * @param token the authorization token (bearer)
      */
     public HttpClientSubmitter(String token) {
-        this(URI.create(DEFAULT_URL), token);
+        this(URI.create(Submitter.DEFAULT_URL), token);
     }
 
     /**
@@ -43,7 +41,7 @@ public class HttpClientSubmitter implements Submitter {
      * @param token the authorization token (bearer)
      */
     public HttpClientSubmitter(URI uri, String token) {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(), uri, token, FastStatsVersion.getDefaultUserAgent());
+        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(), uri, token, BuildInfo.getDefaultUserAgent());
     }
 
     /**

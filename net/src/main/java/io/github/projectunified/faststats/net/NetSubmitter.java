@@ -1,6 +1,6 @@
 package io.github.projectunified.faststats.net;
 
-import io.github.projectunified.faststats.core.FastStatsVersion;
+import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.ByteArrayOutputStream;
@@ -16,8 +16,6 @@ import java.util.zip.GZIPOutputStream;
  * to submit GZIP-compressed telemetry payloads.
  */
 public class NetSubmitter implements Submitter {
-    private static final String DEFAULT_URL = "https://metrics.faststats.dev/v1/collect";
-
     private final URL url;
     private final String token;
     private final String userAgent;
@@ -29,7 +27,7 @@ public class NetSubmitter implements Submitter {
      * @param token the authorization token (bearer)
      */
     public NetSubmitter(String token) {
-        this(getDefaultURL(), token, FastStatsVersion.getDefaultUserAgent());
+        this(getDefaultURL(), token, BuildInfo.getDefaultUserAgent());
     }
 
     /**
@@ -47,9 +45,9 @@ public class NetSubmitter implements Submitter {
 
     private static URL getDefaultURL() {
         try {
-            return new URL(NetSubmitter.DEFAULT_URL);
+            return new URL(Submitter.DEFAULT_URL);
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Invalid URL: " + NetSubmitter.DEFAULT_URL, e);
+            throw new RuntimeException("Invalid URL: " + Submitter.DEFAULT_URL, e);
         }
     }
 

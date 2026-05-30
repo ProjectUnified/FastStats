@@ -5,6 +5,11 @@ package io.github.projectunified.faststats.core;
  */
 public interface Submitter {
     /**
+     * The default URL endpoint for metrics collection.
+     */
+    String DEFAULT_URL = "https://metrics.faststats.dev/v1/collect";
+
+    /**
      * Executes the HTTP request carrying the serialized JSON payload.
      *
      * @param json the JSON payload to transmit

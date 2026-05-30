@@ -36,6 +36,12 @@
         <module>httpclient</module>
         <module>error-tracker</module>
         <module>paper</module>
+        <module>bungeecord</module>
+        <module>hytale</module>
+        <module>minestom</module>
+        <module>nukkit</module>
+        <module>sponge</module>
+        <module>velocity</module>
         <module>bom</module>
     </modules>
 

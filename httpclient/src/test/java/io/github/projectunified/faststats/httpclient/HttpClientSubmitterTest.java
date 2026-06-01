@@ -10,7 +10,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 
@@ -70,11 +69,11 @@ public class HttpClientSubmitterTest {
 
     @Test
     public void testSuccessfulExecution() throws Exception {
-        URI uri = URI.create("http://localhost:" + port + "/collect");
-        HttpClientSubmitter executor = new HttpClientSubmitter(uri, "my-secret-token");
+        String baseUrl = "http://localhost:" + port;
+        HttpClientSubmitter executor = new HttpClientSubmitter(java.net.http.HttpClient.newHttpClient(), baseUrl, "my-secret-token", "MyAgent/1.0");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
-        executor.execute(jsonPayload);
+        executor.execute("/collect", jsonPayload);
 
         assertEquals("gzip", receivedContentEncoding);
         assertEquals("application/octet-stream", receivedContentType);
@@ -101,9 +100,9 @@ public class HttpClientSubmitterTest {
     public void testFailureExecution() {
         responseStatus = 500;
         Exception exception = assertThrows(Exception.class, () -> {
-            URI uri = URI.create("http://localhost:" + port + "/collect");
-            HttpClientSubmitter executor = new HttpClientSubmitter(uri, "token");
-            executor.execute("{}");
+            String baseUrl = "http://localhost:" + port;
+            HttpClientSubmitter executor = new HttpClientSubmitter(java.net.http.HttpClient.newHttpClient(), baseUrl, "token", "Agent");
+            executor.execute("/collect", "{}");
         });
         assertTrue(exception.getMessage().contains("500"));
         assertTrue(exception.getMessage().contains("Error Details Here"));

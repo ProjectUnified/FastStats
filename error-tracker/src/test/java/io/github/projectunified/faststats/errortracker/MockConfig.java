@@ -35,6 +35,11 @@ class MockConfig implements Config {
     }
 
     @Override
+    public boolean isSubmitMetrics() {
+        return true;
+    }
+
+    @Override
     public boolean isDebug() {
         return true;
     }

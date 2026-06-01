@@ -55,13 +55,25 @@ public abstract class Feature {
     }
 
     /**
-     * Submits the given data map payload.
+     * Called when the configuration needs migration.
      *
-     * @param dataMap a map of keys to their data maps
+     * @param config           the configuration
+     * @param oldConfigVersion the old configuration version
+     * @param newConfigVersion the new configuration version
+     */
+    public void onConfigMigrate(Config config, int oldConfigVersion, int newConfigVersion) {
+    }
+
+    /**
+     * Submits the given data map payload with a custom path and context key.
+     *
+     * @param path       the target path or URL
+     * @param dataMap    a map of keys to their data maps
+     * @param contextKey the key to nest platform and default metrics data under, or null to omit
      * @throws Exception if submission fails
      */
-    protected final void submit(Map<String, Object> dataMap, boolean includeData) throws Exception {
-        getMetrics().submit(dataMap, includeData);
+    protected final void submit(String path, Map<String, Object> dataMap, String contextKey) throws Exception {
+        getMetrics().submit(path, dataMap, contextKey);
     }
 
     /**

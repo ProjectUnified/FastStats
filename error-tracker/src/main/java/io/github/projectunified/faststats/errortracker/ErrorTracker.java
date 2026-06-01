@@ -1,5 +1,6 @@
 package io.github.projectunified.faststats.errortracker;
 
+import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Feature;
 import io.github.projectunified.faststats.core.TaskScheduler;
 
@@ -18,8 +19,8 @@ import java.util.regex.Pattern;
 public class ErrorTracker extends Feature {
     private final ClassLoader loader;
 
-    private final Map<String, Integer> collected = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Object>> reports = new ConcurrentHashMap<>();
+    private final Map<TrackedErrorKey, Integer> collected = new ConcurrentHashMap<>();
+    private final Map<TrackedErrorKey, Map<String, Object>> reports = new ConcurrentHashMap<>();
 
     private final Map<Class<? extends Throwable>, Set<Pattern>> ignoredTypedPatterns = new ConcurrentHashMap<>();
     private final Set<Class<? extends Throwable>> ignoredTypes = new CopyOnWriteArraySet<>();
@@ -152,14 +153,14 @@ public class ErrorTracker extends Feature {
             if (isIgnored(error, Collections.newSetFromMap(new IdentityHashMap<>()))) {
                 return;
             }
-            final Map<String, Object> compiled = ErrorHelper.compile(error, null, handled, anonymizationEntries);
-            final String hashed = MurmurHash3.hash(compiled.toString());
+            final TrackedErrorKey key = new TrackedErrorKey(error, handled);
 
             synchronized (this) {
-                if (collected.compute(hashed, (k, v) -> v == null ? 1 : v + 1) > 1) {
+                if (collected.compute(key, (k, v) -> v == null ? 1 : v + 1) > 1) {
                     return;
                 }
-                reports.put(hashed, compiled);
+                final Map<String, Object> compiled = ErrorHelper.compile(error, null, handled, anonymizationEntries);
+                reports.put(key, compiled);
             }
         } catch (final NoClassDefFoundError ignored) {
         }
@@ -347,10 +348,15 @@ public class ErrorTracker extends Feature {
             return;
         }
 
-        final String buildId = getProperty("build-id", "unknown");
+        String serverPath = System.getProperty("faststats.error-tracker-server");
+        if (serverPath == null) {
+            serverPath = getProperty("error-tracker-server", "/v1/error");
+        }
 
-        final Map<String, Map<String, Object>> reportsSnapshot;
-        final Map<String, Integer> collectedSnapshot;
+        final String buildId = getProperty("build-id", BuildInfo.getBuildId());
+
+        final Map<TrackedErrorKey, Map<String, Object>> reportsSnapshot;
+        final Map<TrackedErrorKey, Integer> collectedSnapshot;
 
         synchronized (this) {
             if (reports.isEmpty() && collected.isEmpty()) {
@@ -364,22 +370,24 @@ public class ErrorTracker extends Feature {
 
         List<Map<String, Object>> errorsList = new ArrayList<>();
 
-        reportsSnapshot.forEach((hash, report) -> {
+        reportsSnapshot.forEach((key, report) -> {
             Map<String, Object> copy = new LinkedHashMap<>(report);
+            String hash = Integer.toHexString(key.hashCode());
             copy.put("hash", hash);
             copy.put("buildId", buildId);
-            int count = collectedSnapshot.getOrDefault(hash, 1);
+            int count = collectedSnapshot.getOrDefault(key, 1);
             if (count > 1) {
                 copy.put("count", count);
             }
             errorsList.add(copy);
         });
 
-        collectedSnapshot.forEach((hash, count) -> {
-            if (count <= 0 || reportsSnapshot.containsKey(hash)) {
+        collectedSnapshot.forEach((key, count) -> {
+            if (count <= 0 || reportsSnapshot.containsKey(key)) {
                 return;
             }
             Map<String, Object> entry = new LinkedHashMap<>();
+            String hash = Integer.toHexString(key.hashCode());
             entry.put("hash", hash);
             if (count > 1) {
                 entry.put("count", count);
@@ -391,6 +399,58 @@ public class ErrorTracker extends Feature {
             return;
         }
 
-        submit(Collections.singletonMap("errors", errorsList), true);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("buildId", buildId);
+        payload.put("language", "java");
+        payload.put("project_name", getProperty("project-name", getProperty("project_name", "unknown")));
+        payload.put("sdk_name", BuildInfo.getName());
+        payload.put("sdk_version", BuildInfo.getVersion());
+        payload.put("errors", errorsList);
+
+        submit(serverPath, payload, "context");
+    }
+
+    private static final class TrackedErrorKey {
+        private final Throwable error;
+        private final boolean handled;
+
+        public TrackedErrorKey(Throwable error, boolean handled) {
+            this.error = error;
+            this.handled = handled;
+        }
+
+        private static boolean deepEquals(Throwable first, Throwable second, Set<Throwable> visited) {
+            if (first == second) return true;
+            if (first == null || second == null) return false;
+            if (first.getClass() != second.getClass()) return false;
+            if (!Objects.equals(first.getMessage(), second.getMessage())) return false;
+            if (!Arrays.equals(first.getStackTrace(), second.getStackTrace())) return false;
+            if (!visited.add(first)) return true;
+            return deepEquals(first.getCause(), second.getCause(), visited);
+        }
+
+        private static int hash(Throwable error, Set<Throwable> visited) {
+            if (error == null || !visited.add(error)) return 0;
+            return Objects.hash(
+                    error.getClass(),
+                    error.getMessage(),
+                    Arrays.hashCode(error.getStackTrace()),
+                    hash(error.getCause(), visited)
+            );
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            TrackedErrorKey that = (TrackedErrorKey) o;
+            return handled == that.handled
+                    && deepEquals(error, that.error, Collections.newSetFromMap(new IdentityHashMap<>()));
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(handled, hash(error, Collections.newSetFromMap(new IdentityHashMap<>())));
+        }
     }
 }

@@ -43,6 +43,7 @@
         <module>sponge</module>
         <module>velocity</module>
         <module>bom</module>
+        <module>bukkit-test-plugin</module>
     </modules>
 
     <issueManagement>

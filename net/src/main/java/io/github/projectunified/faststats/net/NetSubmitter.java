@@ -5,7 +5,6 @@ import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.*;
 import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPOutputStream;
@@ -15,43 +14,34 @@ import java.util.zip.GZIPOutputStream;
  * to submit GZIP-compressed telemetry payloads.
  */
 public class NetSubmitter implements Submitter {
-    private final URL url;
+    private final String baseUrl;
     private final String token;
     private final String userAgent;
 
     /**
-     * Constructs a new {@link NetSubmitter} with the default metrics URL
-     * ({@code https://metrics.faststats.dev/v1/collect}) and default user agent.
+     * Constructs a new {@link NetSubmitter} with default settings.
      *
      * @param token the authorization token (bearer)
      */
     public NetSubmitter(String token) {
-        this(getDefaultURL(), token, BuildInfo.getDefaultUserAgent());
+        this(Submitter.DEFAULT_BASE_URL, token, BuildInfo.getDefaultUserAgent());
     }
 
     /**
      * Constructs a new {@link NetSubmitter}.
      *
-     * @param url       the target metrics URL
+     * @param baseUrl   the base URL
      * @param token     the authorization token (bearer)
      * @param userAgent the user agent header value
      */
-    public NetSubmitter(URL url, String token, String userAgent) {
-        this.url = url;
+    public NetSubmitter(String baseUrl, String token, String userAgent) {
+        this.baseUrl = baseUrl;
         this.token = token;
         this.userAgent = userAgent;
     }
 
-    private static URL getDefaultURL() {
-        try {
-            return new URL(Submitter.DEFAULT_URL);
-        } catch (MalformedURLException e) {
-            throw new RuntimeException("Invalid URL: " + Submitter.DEFAULT_URL, e);
-        }
-    }
-
     @Override
-    public void execute(String json) throws Exception {
+    public void execute(String path, String json) throws Exception {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
         ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
@@ -61,7 +51,15 @@ public class NetSubmitter implements Submitter {
         }
         byte[] compressed = byteOutput.toByteArray();
 
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        String fullUrl;
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            fullUrl = path;
+        } else {
+            fullUrl = this.baseUrl + path;
+        }
+
+        URL targetUrl = new URL(fullUrl);
+        HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setConnectTimeout(3000);

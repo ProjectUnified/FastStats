@@ -127,13 +127,28 @@ public final class Metrics {
             logInfo("Metrics disabled, not starting submission");
             return;
         }
-        scheduler.schedule(() -> {
-            try {
-                submit();
-            } catch (Throwable t) {
-                logError("Error during scheduled metrics submission", t);
+        int oldVersion = config.getOldConfigVersion();
+        int currentVersion = config.getConfigVersion();
+        if (oldVersion < currentVersion) {
+            for (Feature feature : features) {
+                try {
+                    feature.onConfigMigrate(config, oldVersion, currentVersion);
+                } catch (Throwable t) {
+                    logError("Error migrating config for feature " + feature.getClass().getSimpleName(), t);
+                }
             }
-        }, initialDelayMs, periodMs);
+        }
+        if (config.isSubmitMetrics()) {
+            scheduler.schedule(() -> {
+                try {
+                    submit("/v1/collect", Collections.emptyMap(), "data");
+                } catch (Throwable t) {
+                    logError("Error during scheduled metrics submission", t);
+                }
+            }, initialDelayMs, periodMs);
+        } else {
+            logInfo("Metrics submission is disabled, not scheduling submission");
+        }
 
         for (Feature feature : features) {
             try {
@@ -161,33 +176,23 @@ public final class Metrics {
     }
 
     /**
-     * Automatically gathers system/platform/additional metrics and submits them.
-     *
-     * @throws Exception if data collection or submission fails
-     */
-    void submit() throws Exception {
-        submit(Collections.emptyMap(), true);
-    }
-
-    /**
      * Directly serializes and submits the given map payload.
      * Injects the server identifier automatically.
      *
-     * @param dataMap     a map of keys to their data maps, each nested in the root payload
-     * @param includeData whether to include/append the platform and default metrics data block
+     * @param path       the target path or URL
+     * @param dataMap    a map of keys to their data maps, each nested in the root payload
+     * @param contextKey the key to nest platform and default metrics data under, or null to omit
      * @throws Exception if submission fails
      */
-    void submit(Map<String, Object> dataMap, boolean includeData) throws Exception {
+    void submit(String path, Map<String, Object> dataMap, String contextKey) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");
             return;
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("identifier", config.getServerId().toString());
-        payload.putAll(dataMap);
 
-        if (includeData) {
+        Map<String, Object> payload = new LinkedHashMap<>(dataMap);
+        if (contextKey != null && config.isSubmitMetrics()) {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("core_count", Runtime.getRuntime().availableProcessors());
             data.put("java_vendor", System.getProperty("java.vendor"));
@@ -222,13 +227,19 @@ public final class Metrics {
                     }
                 }
             }
-            payload.put("data", data);
+            payload.put(contextKey, data);
         }
+
+        if (payload.isEmpty()) {
+            return;
+        }
+
+        payload.put("identifier", config.getServerId().toString());
 
         String json = serializer.serialize(payload);
         logInfo("Submitting metrics payload: " + json);
         try {
-            submitter.execute(json);
+            submitter.execute(path, json);
             logInfo("Metrics submitted successfully.");
         } catch (Exception e) {
             logError("Failed to submit metrics", e);

@@ -9,7 +9,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 
@@ -69,11 +68,11 @@ public class NetSubmitterTest {
 
     @Test
     public void testSuccessfulExecution() throws Exception {
-        URL url = new URL("http://localhost:" + port + "/collect");
-        NetSubmitter executor = new NetSubmitter(url, "my-secret-token", "MyAgent/1.0");
+        String baseUrl = "http://localhost:" + port;
+        NetSubmitter executor = new NetSubmitter(baseUrl, "my-secret-token", "MyAgent/1.0");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
-        executor.execute(jsonPayload);
+        executor.execute("/collect", jsonPayload);
 
         assertEquals("gzip", receivedContentEncoding);
         assertEquals("application/octet-stream", receivedContentType);
@@ -100,9 +99,9 @@ public class NetSubmitterTest {
     public void testFailureExecution() {
         responseStatus = 500;
         Exception exception = assertThrows(Exception.class, () -> {
-            URL url = new URL("http://localhost:" + port + "/collect");
-            NetSubmitter executor = new NetSubmitter(url, "token", "Agent");
-            executor.execute("{}");
+            String baseUrl = "http://localhost:" + port;
+            NetSubmitter executor = new NetSubmitter(baseUrl, "token", "Agent");
+            executor.execute("/collect", "{}");
         });
         assertTrue(exception.getMessage().contains("500"));
         assertTrue(exception.getMessage().contains("Error Details Here"));

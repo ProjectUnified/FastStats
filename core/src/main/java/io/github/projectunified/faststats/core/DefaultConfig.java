@@ -42,8 +42,10 @@ public class DefaultConfig implements Config {
 
     private final UUID serverId;
     private final boolean additionalMetrics;
+    private final boolean submitMetrics;
     private final boolean debug;
     private final boolean enabled;
+    private final int oldConfigVersion;
 
     /**
      * Constructs a new {@link DefaultConfig} instance.
@@ -55,11 +57,13 @@ public class DefaultConfig implements Config {
      * @param firstRun          whether it is the first time running stats
      * @param serverId          the server ID
      * @param additionalMetrics whether to submit additional metrics
+     * @param submitMetrics     whether to submit metrics
      * @param debug             whether debug logging is enabled
      * @param enabled           whether metrics collection is enabled
+     * @param oldConfigVersion  the configuration version before upgrade
      */
     public DefaultConfig(Path file, String[] comment, boolean externallyManaged, Properties properties, boolean firstRun,
-                         UUID serverId, boolean additionalMetrics, boolean debug, boolean enabled) {
+                         UUID serverId, boolean additionalMetrics, boolean submitMetrics, boolean debug, boolean enabled, int oldConfigVersion) {
         this.file = file;
         this.comment = comment;
         this.externallyManaged = externallyManaged;
@@ -67,8 +71,10 @@ public class DefaultConfig implements Config {
         this.firstRun = firstRun;
         this.serverId = serverId;
         this.additionalMetrics = additionalMetrics;
+        this.submitMetrics = submitMetrics;
         this.debug = debug;
         this.enabled = enabled;
+        this.oldConfigVersion = oldConfigVersion;
     }
 
     /**
@@ -96,6 +102,25 @@ public class DefaultConfig implements Config {
         boolean firstRun = !Files.isRegularFile(file);
         Properties properties = readOrEmpty(file);
         AtomicBoolean saveConfig = new AtomicBoolean(firstRun);
+
+        String configVersionStr = properties.getProperty("configVersion");
+        int oldConfigVersion = 1;
+        if (configVersionStr != null) {
+            try {
+                oldConfigVersion = Integer.parseInt(configVersionStr.trim());
+            } catch (NumberFormatException e) {
+                saveConfig.set(true);
+            }
+        } else {
+            oldConfigVersion = firstRun ? 1 : 0;
+            saveConfig.set(true);
+        }
+
+        if (oldConfigVersion < 1) {
+            saveConfig.set(true);
+        } else if (oldConfigVersion > 1) {
+            saveConfig.set(false);
+        }
 
         UUID serverId;
         String serverIdStr = properties.getProperty("serverId");
@@ -130,8 +155,11 @@ public class DefaultConfig implements Config {
             enabled = false;
         }
 
+        boolean submitMetrics = getBooleanProperty(properties, "submitMetrics", true, saveConfig);
         boolean additionalMetrics = getBooleanProperty(properties, "submitAdditionalMetrics", true, saveConfig);
         boolean debug = getBooleanProperty(properties, "debug", false, saveConfig);
+
+        properties.setProperty("configVersion", "1");
 
         if (saveConfig.get()) {
             try {
@@ -142,7 +170,7 @@ public class DefaultConfig implements Config {
         }
 
         return new DefaultConfig(file, comment, externallyManaged, properties, firstRun,
-                serverId, additionalMetrics, debug, enabled);
+                serverId, additionalMetrics, submitMetrics, debug, enabled, oldConfigVersion);
     }
 
     private static boolean getBooleanProperty(Properties properties, String key, boolean defaultValue, AtomicBoolean saveConfig) {
@@ -195,6 +223,11 @@ public class DefaultConfig implements Config {
     }
 
     @Override
+    public boolean isSubmitMetrics() {
+        return submitMetrics;
+    }
+
+    @Override
     public boolean isDebug() {
         return debug;
     }
@@ -225,5 +258,10 @@ public class DefaultConfig implements Config {
     @Override
     public String getProperty(String key, String defaultValue) {
         return properties.getProperty(key, defaultValue);
+    }
+
+    @Override
+    public int getOldConfigVersion() {
+        return oldConfigVersion;
     }
 }

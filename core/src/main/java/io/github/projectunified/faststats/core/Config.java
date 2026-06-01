@@ -29,6 +29,13 @@ public interface Config {
     boolean isSubmitAdditionalMetrics();
 
     /**
+     * Checks if metrics submission is enabled.
+     *
+     * @return true if enabled, false otherwise
+     */
+    boolean isSubmitMetrics();
+
+    /**
      * Checks if debug logging is enabled.
      *
      * @return true if enabled, false otherwise
@@ -60,4 +67,23 @@ public interface Config {
      * @return the property value or the default value
      */
     String getProperty(String key, String defaultValue);
+
+    /**
+     * Retrieves the version of the configuration file.
+     *
+     * @return the configuration version
+     */
+    default int getConfigVersion() {
+        return 1;
+    }
+
+    /**
+     * Retrieves the previous version of the configuration file before loading/updating.
+     * If the configuration file was not upgraded, it will be equal to {@link #getConfigVersion()}.
+     *
+     * @return the previous configuration version, or {@link #getConfigVersion()} if not updated
+     */
+    default int getOldConfigVersion() {
+        return getConfigVersion();
+    }
 }

@@ -9,6 +9,7 @@ public class MockConfig implements Config {
     private final Map<String, String> properties = new HashMap<>();
     boolean enabled = true;
     boolean submitAdditionalMetrics = true;
+    boolean submitMetrics = true;
     boolean debug = false;
     boolean firstRun = false;
 
@@ -25,6 +26,11 @@ public class MockConfig implements Config {
     @Override
     public boolean isSubmitAdditionalMetrics() {
         return submitAdditionalMetrics;
+    }
+
+    @Override
+    public boolean isSubmitMetrics() {
+        return submitMetrics;
     }
 
     @Override

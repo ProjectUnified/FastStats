@@ -1,0 +1,5 @@
+name: FastStatsTestPlugin
+version: 0.3.1
+main: io.github.projectunified.faststats.bukkit.testplugin.FastStatsTestPlugin
+api-version: 1.13
+folia-supported: true

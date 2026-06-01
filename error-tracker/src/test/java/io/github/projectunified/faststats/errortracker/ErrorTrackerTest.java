@@ -67,8 +67,17 @@ public class ErrorTrackerTest {
                 .addFeature(tracker)
                 .build();
 
-        tracker.trackError(new RuntimeException("Repeated error"));
-        tracker.trackError(new RuntimeException("Repeated error"));
+        RuntimeException first = new RuntimeException("Repeated error");
+        first.setStackTrace(new StackTraceElement[]{
+                new StackTraceElement("example.Plugin", "run", "Plugin.java", 42)
+        });
+        RuntimeException second = new RuntimeException("Repeated error");
+        second.setStackTrace(new StackTraceElement[]{
+                new StackTraceElement("example.Plugin", "run", "Plugin.java", 42)
+        });
+
+        tracker.trackError(first);
+        tracker.trackError(second);
         tracker.submitErrors();
 
         assertEquals(1, submitter.callCount);

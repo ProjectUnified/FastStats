@@ -18,49 +18,46 @@ import java.util.zip.GZIPOutputStream;
  */
 public class HttpClientSubmitter implements Submitter {
     private final HttpClient httpClient;
-    private final URI uri;
+    private final String baseUrl;
     private final String token;
     private final String userAgent;
 
     /**
-     * Constructs a new {@link HttpClientSubmitter} with the default metrics URI
-     * ({@code https://metrics.faststats.dev/v1/collect}), standard {@link HttpClient},
-     * and default user agent.
+     * Constructs a new {@link HttpClientSubmitter} with standard {@link HttpClient}.
      *
      * @param token the authorization token (bearer)
      */
     public HttpClientSubmitter(String token) {
-        this(URI.create(Submitter.DEFAULT_URL), token);
+        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(), token);
     }
 
     /**
-     * Constructs a new {@link HttpClientSubmitter} with standard {@link HttpClient}
-     * and default user agent.
+     * Constructs a new {@link HttpClientSubmitter} with standard {@link HttpClient}.
      *
-     * @param uri   the target metrics URI
-     * @param token the authorization token (bearer)
+     * @param httpClient the HttpClient instance to use
+     * @param token      the authorization token (bearer)
      */
-    public HttpClientSubmitter(URI uri, String token) {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build(), uri, token, BuildInfo.getDefaultUserAgent());
+    public HttpClientSubmitter(HttpClient httpClient, String token) {
+        this(httpClient, Submitter.DEFAULT_BASE_URL, token, BuildInfo.getDefaultUserAgent());
     }
 
     /**
      * Constructs a new {@link HttpClientSubmitter}.
      *
      * @param httpClient the HttpClient instance to use
-     * @param uri        the target metrics URI
+     * @param baseUrl    the base URL
      * @param token      the authorization token (bearer)
      * @param userAgent  the user agent header value
      */
-    public HttpClientSubmitter(HttpClient httpClient, URI uri, String token, String userAgent) {
+    public HttpClientSubmitter(HttpClient httpClient, String baseUrl, String token, String userAgent) {
         this.httpClient = httpClient;
-        this.uri = uri;
+        this.baseUrl = baseUrl;
         this.token = token;
         this.userAgent = userAgent;
     }
 
     @Override
-    public void execute(String json) throws Exception {
+    public void execute(String path, String json) throws Exception {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
         ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
@@ -70,12 +67,20 @@ public class HttpClientSubmitter implements Submitter {
         }
         byte[] compressed = byteOutput.toByteArray();
 
+        String fullUrl;
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            fullUrl = path;
+        } else {
+            fullUrl = this.baseUrl + path;
+        }
+
+        URI targetUri = URI.create(fullUrl);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .POST(HttpRequest.BodyPublishers.ofByteArray(compressed))
                 .header("Content-Encoding", "gzip")
                 .header("Content-Type", "application/octet-stream")
                 .timeout(Duration.ofSeconds(3))
-                .uri(uri);
+                .uri(targetUri);
 
         if (token != null && !token.isEmpty()) {
             builder.header("Authorization", "Bearer " + token);

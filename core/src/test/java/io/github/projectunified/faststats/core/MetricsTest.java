@@ -23,7 +23,7 @@ public class MetricsTest {
                 .addMetric(Metric.number("added_metric", () -> 42))
                 .build();
 
-        metrics.submit();
+        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));
@@ -51,7 +51,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit();
+        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
 
         assertEquals(0, http.callCount);
     }
@@ -73,7 +73,7 @@ public class MetricsTest {
 
         Map<String, Object> dataMap = new LinkedHashMap<>();
         dataMap.put("custom_data", customPayload);
-        metrics.submit(dataMap, false);
+        metrics.submit("/v1/collect", dataMap, null);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("custom_data={custom_key=custom_val}"));
@@ -116,7 +116,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit();
+        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("map_metric={num=100, bool=true, custom=custom_val}"));
@@ -280,7 +280,7 @@ public class MetricsTest {
             }
 
             public void triggerSubmit(Map<String, Object> dataMap) throws Exception {
-                submit(dataMap, false);
+                submit("/v1/collect", dataMap, null);
             }
         }
 
@@ -360,5 +360,24 @@ public class MetricsTest {
 
         // Test from within FinderFeature
         finder.assertFoundFeatures(feature);
+    }
+
+    @Test
+    public void testSubmitMetricsDisabled() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ((MockConfig) platform.getConfig()).submitMetrics = false;
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(serializer)
+                .submitter(http)
+                .build();
+
+        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
+
+        assertEquals(0, http.callCount);
     }
 }

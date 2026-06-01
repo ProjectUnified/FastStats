@@ -35,6 +35,12 @@
                             <bomDescription>${project.description}</bomDescription>
                             <reactorDependencies>REACTOR</reactorDependencies>
                             <attach>true</attach>
+                            <dependencyExclusions>
+                                <dependencyExclusion>
+                                    <groupId>io.github.projectunified</groupId>
+                                    <artifactId>faststats-bukkit-test-plugin</artifactId>
+                                </dependencyExclusion>
+                            </dependencyExclusions>
                         </configuration>
                     </execution>
                 </executions>

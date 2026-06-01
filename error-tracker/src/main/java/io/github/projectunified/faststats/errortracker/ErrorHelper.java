@@ -11,8 +11,10 @@ final class ErrorHelper {
             new java.util.HashSet<>(Arrays.asList("minecraft", "server", "root", "ubuntu"))
     );
 
-    public static Map<String, Object> compile(final Throwable error, final List<String> suppress, final boolean handled,
-                                              final List<Map.Entry<Pattern, String>> customPatterns) {
+    public static Map<String, Object> compile(final TrackedError trackedError, final List<String> suppress,
+                                              final List<Map.Entry<Pattern, String>> customPatterns,
+                                              final Map<String, Object> defaultAttributes) {
+        final Throwable error = trackedError.error();
         final Map<String, Object> report = new LinkedHashMap<>();
         final String message = getAnonymizedMessage(error, customPatterns);
 
@@ -39,7 +41,16 @@ final class ErrorHelper {
         }
 
         report.put("stack", stacktrace);
-        report.put("handled", handled);
+        report.put("handled", trackedError.handled());
+
+        final Map<String, Object> context = new LinkedHashMap<>();
+        if (defaultAttributes != null) {
+            context.putAll(defaultAttributes);
+        }
+        context.putAll(trackedError.attributes());
+        if (!context.isEmpty()) {
+            report.put("context", context);
+        }
 
         return report;
     }

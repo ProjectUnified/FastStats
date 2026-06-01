@@ -10,6 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -19,8 +21,8 @@ import java.util.regex.Pattern;
 public class ErrorTracker extends Feature {
     private final ClassLoader loader;
 
-    private final Map<TrackedErrorKey, Integer> collected = new ConcurrentHashMap<>();
-    private final Map<TrackedErrorKey, Map<String, Object>> reports = new ConcurrentHashMap<>();
+    private final Map<TrackedError, Integer> reports = new ConcurrentHashMap<>();
+    private final Map<String, Object> attributes = new ConcurrentHashMap<>();
 
     private final Map<Class<? extends Throwable>, Set<Pattern>> ignoredTypedPatterns = new ConcurrentHashMap<>();
     private final Set<Class<? extends Throwable>> ignoredTypes = new CopyOnWriteArraySet<>();
@@ -77,6 +79,45 @@ public class ErrorTracker extends Feature {
         return new ErrorTracker(null);
     }
 
+    /**
+     * Returns the global error context attributes configured for this tracker.
+     *
+     * @return the global error context attributes
+     */
+    public Map<String, Object> getAttributes() {
+        return attributes;
+    }
+
+    /**
+     * Modifies the global error context attributes using a consumer.
+     *
+     * @param consumer the consumer to modify attributes
+     * @return this instance
+     */
+    public ErrorTracker attributes(Consumer<Map<String, Object>> consumer) {
+        if (consumer != null) {
+            consumer.accept(this.attributes);
+        }
+        return this;
+    }
+
+    /**
+     * Sets the global error context attributes using a supplier.
+     *
+     * @param supplier the supplier of attributes
+     * @return this instance
+     */
+    public ErrorTracker attributes(Supplier<Map<String, Object>> supplier) {
+        if (supplier != null) {
+            Map<String, Object> supplied = supplier.get();
+            this.attributes.clear();
+            if (supplied != null) {
+                this.attributes.putAll(supplied);
+            }
+        }
+        return this;
+    }
+
     @Override
     public Map<String, String> getDefaultProperties() {
         return Collections.singletonMap("submitErrors", "true");
@@ -118,18 +159,20 @@ public class ErrorTracker extends Feature {
      * Tracks a handled error with the given message.
      *
      * @param message the error message
+     * @return the tracked error
      */
-    public void trackError(final String message) {
-        trackError(message, true);
+    public TrackedError trackError(final String message) {
+        return trackError(message, true);
     }
 
     /**
      * Tracks a handled error.
      *
      * @param error the error
+     * @return the tracked error
      */
-    public void trackError(final Throwable error) {
-        trackError(error, true);
+    public TrackedError trackError(final Throwable error) {
+        return trackError(error, true);
     }
 
     /**
@@ -137,9 +180,10 @@ public class ErrorTracker extends Feature {
      *
      * @param message the error message
      * @param handled whether the error was handled
+     * @return the tracked error
      */
-    public void trackError(final String message, final boolean handled) {
-        trackError(new RuntimeException(message), handled);
+    public TrackedError trackError(final String message, final boolean handled) {
+        return trackError(new RuntimeException(message), handled);
     }
 
     /**
@@ -147,23 +191,19 @@ public class ErrorTracker extends Feature {
      *
      * @param error   the error
      * @param handled whether the error was handled
+     * @return the tracked error
      */
-    public void trackError(final Throwable error, final boolean handled) {
+    public TrackedError trackError(final Throwable error, final boolean handled) {
+        final TrackedError trackedError = new TrackedError(error).handled(handled);
         try {
             if (isIgnored(error, Collections.newSetFromMap(new IdentityHashMap<>()))) {
-                return;
+                return trackedError;
             }
-            final TrackedErrorKey key = new TrackedErrorKey(error, handled);
 
-            synchronized (this) {
-                if (collected.compute(key, (k, v) -> v == null ? 1 : v + 1) > 1) {
-                    return;
-                }
-                final Map<String, Object> compiled = ErrorHelper.compile(error, null, handled, anonymizationEntries);
-                reports.put(key, compiled);
-            }
+            reports.compute(trackedError, (k, v) -> v == null ? 1 : v + 1);
         } catch (final NoClassDefFoundError ignored) {
         }
+        return trackedError;
     }
 
     private boolean isIgnored(final Throwable error, final Set<Throwable> visited) {
@@ -355,44 +395,27 @@ public class ErrorTracker extends Feature {
 
         final String buildId = getProperty("build-id", BuildInfo.getBuildId());
 
-        final Map<TrackedErrorKey, Map<String, Object>> reportsSnapshot;
-        final Map<TrackedErrorKey, Integer> collectedSnapshot;
+        final Map<TrackedError, Integer> reportsSnapshot;
 
         synchronized (this) {
-            if (reports.isEmpty() && collected.isEmpty()) {
+            if (reports.isEmpty()) {
                 return;
             }
             reportsSnapshot = new LinkedHashMap<>(reports);
-            collectedSnapshot = new LinkedHashMap<>(collected);
             reports.clear();
-            collected.replaceAll((k, v) -> 0);
         }
 
         List<Map<String, Object>> errorsList = new ArrayList<>();
 
-        reportsSnapshot.forEach((key, report) -> {
-            Map<String, Object> copy = new LinkedHashMap<>(report);
-            String hash = Integer.toHexString(key.hashCode());
-            copy.put("hash", hash);
-            copy.put("buildId", buildId);
-            int count = collectedSnapshot.getOrDefault(key, 1);
+        reportsSnapshot.forEach((trackedError, count) -> {
+            Map<String, Object> compiled = ErrorHelper.compile(trackedError, null, anonymizationEntries, attributes);
+            String hash = Integer.toHexString(trackedError.hashCode());
+            compiled.put("hash", hash);
+            compiled.put("buildId", buildId);
             if (count > 1) {
-                copy.put("count", count);
+                compiled.put("count", count);
             }
-            errorsList.add(copy);
-        });
-
-        collectedSnapshot.forEach((key, count) -> {
-            if (count <= 0 || reportsSnapshot.containsKey(key)) {
-                return;
-            }
-            Map<String, Object> entry = new LinkedHashMap<>();
-            String hash = Integer.toHexString(key.hashCode());
-            entry.put("hash", hash);
-            if (count > 1) {
-                entry.put("count", count);
-            }
-            errorsList.add(entry);
+            errorsList.add(compiled);
         });
 
         if (errorsList.isEmpty()) {
@@ -409,49 +432,5 @@ public class ErrorTracker extends Feature {
         payload.put("context", getDefaultContext());
 
         submit(serverPath, payload);
-    }
-
-    private static final class TrackedErrorKey {
-        private final Throwable error;
-        private final boolean handled;
-
-        public TrackedErrorKey(Throwable error, boolean handled) {
-            this.error = error;
-            this.handled = handled;
-        }
-
-        private static boolean deepEquals(Throwable first, Throwable second, Set<Throwable> visited) {
-            if (first == second) return true;
-            if (first == null || second == null) return false;
-            if (first.getClass() != second.getClass()) return false;
-            if (!Objects.equals(first.getMessage(), second.getMessage())) return false;
-            if (!Arrays.equals(first.getStackTrace(), second.getStackTrace())) return false;
-            if (!visited.add(first)) return true;
-            return deepEquals(first.getCause(), second.getCause(), visited);
-        }
-
-        private static int hash(Throwable error, Set<Throwable> visited) {
-            if (error == null || !visited.add(error)) return 0;
-            return Objects.hash(
-                    error.getClass(),
-                    error.getMessage(),
-                    Arrays.hashCode(error.getStackTrace()),
-                    hash(error.getCause(), visited)
-            );
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            TrackedErrorKey that = (TrackedErrorKey) o;
-            return handled == that.handled
-                    && deepEquals(error, that.error, Collections.newSetFromMap(new IdentityHashMap<>()));
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(handled, hash(error, Collections.newSetFromMap(new IdentityHashMap<>())));
-        }
     }
 }

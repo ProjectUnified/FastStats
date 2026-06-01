@@ -225,4 +225,68 @@ public class ErrorTrackerTest {
         tracker.onShutdown();
         assertFalse(tracker.isContextAttached());
     }
+
+    @Test
+    public void testTrackError_withContext() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ErrorTracker tracker = ErrorTracker.contextUnaware();
+        tracker.getAttributes().put("globalKey", "globalVal");
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
+        java.util.Map<String, Object> localAttrs = new java.util.LinkedHashMap<>();
+        localAttrs.put("localKey", "localVal");
+
+        tracker.trackError(new RuntimeException("With context"))
+                .handled(false)
+                .attributes(localAttrs);
+
+        tracker.submitErrors();
+
+        assertEquals(1, submitter.callCount);
+        assertTrue(submitter.capturedJson.contains("handled=false"));
+        assertTrue(submitter.capturedJson.contains("globalKey=globalVal"));
+        assertTrue(submitter.capturedJson.contains("localKey=localVal"));
+    }
+
+    @Test
+    public void testTrackError_withContextStyled() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ErrorTracker tracker = ErrorTracker.contextUnaware()
+                .attributes(map -> map.put("globalConsumerKey", "globalConsumerVal"));
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
+        java.util.Map<String, Object> localAttrs = new java.util.LinkedHashMap<>();
+        localAttrs.put("suppliedKey", "suppliedVal");
+
+        tracker.trackError(new RuntimeException("With consumer"))
+                .attributes(map -> map.put("consumerKey", "consumerVal"));
+
+        tracker.trackError(new RuntimeException("With supplier"))
+                .attributes(() -> localAttrs);
+
+        tracker.submitErrors();
+
+        assertEquals(1, submitter.callCount);
+        assertTrue(submitter.capturedJson.contains("globalConsumerKey=globalConsumerVal"));
+        assertTrue(submitter.capturedJson.contains("consumerKey=consumerVal"));
+        assertTrue(submitter.capturedJson.contains("suppliedKey=suppliedVal"));
+    }
 }

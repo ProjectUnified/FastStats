@@ -141,7 +141,9 @@ public final class Metrics {
         if (config.isSubmitMetrics()) {
             scheduler.schedule(() -> {
                 try {
-                    submit("/v1/collect", Collections.emptyMap(), "data");
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    payload.put("data", getDefaultContext());
+                    submit("/v1/collect", payload);
                 } catch (Throwable t) {
                     logError("Error during scheduled metrics submission", t);
                 }
@@ -176,64 +178,72 @@ public final class Metrics {
     }
 
     /**
+     * Gets the default context containing OS and platform information.
+     *
+     * @return the default context, or an empty map if metrics submission is disabled
+     */
+    Map<String, Object> getDefaultContext() {
+        Config config = platform.getConfig();
+        if (!config.isSubmitMetrics()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("core_count", Runtime.getRuntime().availableProcessors());
+        data.put("java_vendor", System.getProperty("java.vendor"));
+        data.put("java_version", System.getProperty("java.version"));
+        data.put("os_arch", System.getProperty("os.arch"));
+        data.put("os_name", System.getProperty("os.name"));
+        data.put("os_version", System.getProperty("os.version"));
+
+        Collection<Metric<?>> platformMetrics = platform.getMetrics();
+        if (platformMetrics != null) {
+            for (Metric<?> metric : platformMetrics) {
+                try {
+                    Object val = metric.getValue();
+                    if (val != null) {
+                        data.put(metric.getName(), val);
+                    }
+                } catch (Exception e) {
+                    logError("Failed to collect platform metric " + metric.getName(), e);
+                }
+            }
+        }
+
+        if (config.isSubmitAdditionalMetrics()) {
+            for (Metric<?> metric : additionalMetrics) {
+                try {
+                    Object val = metric.getValue();
+                    if (val != null) {
+                        data.put(metric.getName(), val);
+                    }
+                } catch (Exception e) {
+                    logError("Failed to collect metric " + metric.getName(), e);
+                }
+            }
+        }
+        return data;
+    }
+
+    /**
      * Directly serializes and submits the given map payload.
      * Injects the server identifier automatically.
      *
-     * @param path       the target path or URL
-     * @param dataMap    a map of keys to their data maps, each nested in the root payload
-     * @param contextKey the key to nest platform and default metrics data under, or null to omit
+     * @param path    the target path or URL
+     * @param dataMap a map of keys to their data maps, each nested in the root payload
      * @throws Exception if submission fails
      */
-    void submit(String path, Map<String, Object> dataMap, String contextKey) throws Exception {
+    void submit(String path, Map<String, Object> dataMap) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Metrics submission is disabled.");
             return;
         }
-
-        Map<String, Object> payload = new LinkedHashMap<>(dataMap);
-        if (contextKey != null && config.isSubmitMetrics()) {
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("core_count", Runtime.getRuntime().availableProcessors());
-            data.put("java_vendor", System.getProperty("java.vendor"));
-            data.put("java_version", System.getProperty("java.version"));
-            data.put("os_arch", System.getProperty("os.arch"));
-            data.put("os_name", System.getProperty("os.name"));
-            data.put("os_version", System.getProperty("os.version"));
-
-            Collection<Metric<?>> platformMetrics = platform.getMetrics();
-            if (platformMetrics != null) {
-                for (Metric<?> metric : platformMetrics) {
-                    try {
-                        Object val = metric.getValue();
-                        if (val != null) {
-                            data.put(metric.getName(), val);
-                        }
-                    } catch (Exception e) {
-                        logError("Failed to collect platform metric " + metric.getName(), e);
-                    }
-                }
-            }
-
-            if (config.isSubmitAdditionalMetrics()) {
-                for (Metric<?> metric : additionalMetrics) {
-                    try {
-                        Object val = metric.getValue();
-                        if (val != null) {
-                            data.put(metric.getName(), val);
-                        }
-                    } catch (Exception e) {
-                        logError("Failed to collect metric " + metric.getName(), e);
-                    }
-                }
-            }
-            payload.put(contextKey, data);
-        }
-
-        if (payload.isEmpty()) {
+        if (dataMap.isEmpty()) {
             return;
         }
 
+        Map<String, Object> payload = new LinkedHashMap<>(dataMap);
         payload.put("identifier", config.getServerId().toString());
 
         String json = serializer.serialize(payload);

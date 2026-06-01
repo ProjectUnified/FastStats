@@ -65,15 +65,23 @@ public abstract class Feature {
     }
 
     /**
-     * Submits the given data map payload with a custom path and context key.
+     * Gets the default context containing OS and platform information.
      *
-     * @param path       the target path or URL
-     * @param dataMap    a map of keys to their data maps
-     * @param contextKey the key to nest platform and default metrics data under, or null to omit
+     * @return the default context
+     */
+    protected final Map<String, Object> getDefaultContext() {
+        return getMetrics().getDefaultContext();
+    }
+
+    /**
+     * Submits the given data map payload.
+     *
+     * @param path    the target path or URL
+     * @param dataMap a map of keys to their data maps
      * @throws Exception if submission fails
      */
-    protected final void submit(String path, Map<String, Object> dataMap, String contextKey) throws Exception {
-        getMetrics().submit(path, dataMap, contextKey);
+    protected final void submit(String path, Map<String, Object> dataMap) throws Exception {
+        getMetrics().submit(path, dataMap);
     }
 
     /**

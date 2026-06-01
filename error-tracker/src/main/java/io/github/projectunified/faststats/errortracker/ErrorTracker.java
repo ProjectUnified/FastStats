@@ -406,8 +406,9 @@ public class ErrorTracker extends Feature {
         payload.put("sdk_name", BuildInfo.getName());
         payload.put("sdk_version", BuildInfo.getVersion());
         payload.put("errors", errorsList);
+        payload.put("context", getDefaultContext());
 
-        submit(serverPath, payload, "context");
+        submit(serverPath, payload);
     }
 
     private static final class TrackedErrorKey {

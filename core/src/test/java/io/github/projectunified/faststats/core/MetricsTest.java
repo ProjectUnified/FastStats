@@ -23,7 +23,7 @@ public class MetricsTest {
                 .addMetric(Metric.number("added_metric", () -> 42))
                 .build();
 
-        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));
@@ -51,7 +51,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
 
         assertEquals(0, http.callCount);
     }
@@ -73,7 +73,7 @@ public class MetricsTest {
 
         Map<String, Object> dataMap = new LinkedHashMap<>();
         dataMap.put("custom_data", customPayload);
-        metrics.submit("/v1/collect", dataMap, null);
+        metrics.submit("/v1/collect", dataMap);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("custom_data={custom_key=custom_val}"));
@@ -116,7 +116,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("map_metric={num=100, bool=true, custom=custom_val}"));
@@ -280,7 +280,7 @@ public class MetricsTest {
             }
 
             public void triggerSubmit(Map<String, Object> dataMap) throws Exception {
-                submit("/v1/collect", dataMap, null);
+                submit("/v1/collect", dataMap);
             }
         }
 
@@ -376,7 +376,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.emptyMap(), "data");
+        metrics.submit("/v1/collect", Collections.emptyMap());
 
         assertEquals(0, http.callCount);
     }

@@ -1,4 +1,5 @@
 io.github.projectunified.faststats.bukkit
+io.github.projectunified.faststats.bukkit.testplugin
 io.github.projectunified.faststats.bungeecord
 io.github.projectunified.faststats.core
 io.github.projectunified.faststats.errortracker

@@ -18,9 +18,9 @@ public class FastStatsTestPlugin extends JavaPlugin {
     public void onEnable() {
         BukkitPlatform platform = new BukkitPlatform(this);
         FeatureFlagManager flagManager = new FeatureFlagManager();
-        FeatureFlag<Boolean> testFlag = flagManager.define("test_flag", false);
-        FeatureFlag<String> testStringFlag = flagManager.define("test_string_flag", "test_string");
-        FeatureFlag<Number> testNumberFlag = flagManager.define("test_number_flag", 10);
+        FeatureFlag<Boolean> testFlag = flagManager.define("test-flag", false);
+        FeatureFlag<String> testStringFlag = flagManager.define("test-string-flag", "test_string");
+        FeatureFlag<Number> testNumberFlag = flagManager.define("test-number-flag", 10);
 
         metrics = Metrics.builder()
                 .platform(platform)

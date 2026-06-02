@@ -73,15 +73,29 @@ public abstract class Feature {
         return getMetrics().getDefaultContext();
     }
 
+
     /**
-     * Submits the given data map payload.
+     * Submits the given data map payload and returns the raw response.
      *
-     * @param path    the target path or URL
-     * @param dataMap a map of keys to their data maps
+     * @param path       the target path or URL
+     * @param dataMap    a map of keys to their data maps
+     * @param compressed whether to compress the payload using GZIP
+     * @return the raw response body
      * @throws Exception if submission fails
      */
-    protected final void submit(String path, Map<String, Object> dataMap) throws Exception {
-        getMetrics().submit(path, dataMap);
+    protected final String submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
+        return getMetrics().submit(path, dataMap, compressed);
+    }
+
+    /**
+     * Deserializes the given JSON string into a telemetry map.
+     *
+     * @param json the JSON string to deserialize
+     * @return the deserialized telemetry map
+     * @throws Exception if deserialization fails
+     */
+    protected final Map<String, Object> deserialize(String json) throws Exception {
+        return getMetrics().deserialize(json);
     }
 
     /**

@@ -10,11 +10,13 @@ public interface Submitter {
     String DEFAULT_BASE_URL = "https://metrics.faststats.dev";
 
     /**
-     * Executes the HTTP request carrying the serialized JSON payload.
+     * Executes the HTTP request and returns the response body.
      *
-     * @param path the target path (e.g. /v1/collect) or full URL
-     * @param json the JSON payload to transmit
+     * @param path       the target path or URL
+     * @param json       the JSON payload
+     * @param compressed whether to compress the payload using GZIP
+     * @return the response body as a String
      * @throws Exception if transmission fails
      */
-    void execute(String path, String json) throws Exception;
+    String execute(String path, String json, boolean compressed) throws Exception;
 }

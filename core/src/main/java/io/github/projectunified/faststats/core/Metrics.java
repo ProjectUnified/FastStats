@@ -143,7 +143,7 @@ public final class Metrics {
                 try {
                     Map<String, Object> payload = new LinkedHashMap<>();
                     payload.put("data", getDefaultContext());
-                    submit("/v1/collect", payload);
+                    submit("/v1/collect", payload, false);
                 } catch (Throwable t) {
                     logError("Error during scheduled metrics submission", t);
                 }
@@ -225,36 +225,33 @@ public final class Metrics {
         return data;
     }
 
-    /**
-     * Directly serializes and submits the given map payload.
-     * Injects the server identifier automatically.
-     *
-     * @param path    the target path or URL
-     * @param dataMap a map of keys to their data maps, each nested in the root payload
-     * @throws Exception if submission fails
-     */
-    void submit(String path, Map<String, Object> dataMap) throws Exception {
+    String submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
-            logInfo("Metrics submission is disabled.");
-            return;
+            logInfo("Submission is disabled.");
+            throw new IllegalStateException("Metrics system is disabled");
         }
         if (dataMap.isEmpty()) {
-            return;
+            return "";
         }
 
         Map<String, Object> payload = new LinkedHashMap<>(dataMap);
         payload.put("identifier", config.getServerId().toString());
 
         String json = serializer.serialize(payload);
-        logInfo("Submitting metrics payload: " + json);
+        logInfo("Submitting payload: " + json);
         try {
-            submitter.execute(path, json);
-            logInfo("Metrics submitted successfully.");
+            String response = submitter.execute(path, json, compressed);
+            logInfo("Response received successfully.");
+            return response;
         } catch (Exception e) {
-            logError("Failed to submit metrics", e);
+            logError("Failed to submit/execute request", e);
             throw e;
         }
+    }
+
+    Map<String, Object> deserialize(String json) throws Exception {
+        return serializer.deserialize(json);
     }
 
     private void logInfo(String message) {

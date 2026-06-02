@@ -431,6 +431,6 @@ public class ErrorTracker extends Feature {
         payload.put("errors", errorsList);
         payload.put("context", getDefaultContext());
 
-        submit(serverPath, payload);
+        submit(serverPath, payload, true);
     }
 }

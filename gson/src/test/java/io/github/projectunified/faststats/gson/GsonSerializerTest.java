@@ -20,4 +20,16 @@ public class GsonSerializerTest {
         String json = serializer.serialize(map);
         assertEquals("{\"name\":\"test\",\"value\":123}", json);
     }
+
+    @Test
+    public void testDeserialize() throws Exception {
+        GsonSerializer serializer = new GsonSerializer();
+
+        String json = "{\"name\":\"test\",\"value\":123.0,\"flag\":true}";
+        Map<String, Object> map = serializer.deserialize(json);
+
+        assertEquals("test", map.get("name"));
+        assertEquals(123.0, ((Number) map.get("value")).doubleValue());
+        assertEquals(true, map.get("flag"));
+    }
 }

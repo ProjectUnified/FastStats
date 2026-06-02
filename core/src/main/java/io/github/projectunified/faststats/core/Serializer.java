@@ -14,4 +14,13 @@ public interface Serializer {
      * @throws Exception if serialization fails
      */
     String serialize(Map<String, Object> value) throws Exception;
+
+    /**
+     * Deserializes the given JSON string into a telemetry map.
+     *
+     * @param json the JSON string to deserialize
+     * @return the deserialized telemetry map
+     * @throws Exception if deserialization fails
+     */
+    Map<String, Object> deserialize(String json) throws Exception;
 }

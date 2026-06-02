@@ -40,16 +40,22 @@ public class NetSubmitter implements Submitter {
         this.userAgent = userAgent;
     }
 
-    @Override
-    public void execute(String path, String json) throws Exception {
-        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
-        ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
-        try (GZIPOutputStream output = new GZIPOutputStream(byteOutput)) {
-            output.write(bytes);
-            output.finish();
+    @Override
+    public String execute(String path, String json, boolean compressed) throws Exception {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        byte[] payload;
+
+        if (compressed) {
+            ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
+            try (GZIPOutputStream output = new GZIPOutputStream(byteOutput)) {
+                output.write(bytes);
+                output.finish();
+            }
+            payload = byteOutput.toByteArray();
+        } else {
+            payload = bytes;
         }
-        byte[] compressed = byteOutput.toByteArray();
 
         String fullUrl;
         if (path.startsWith("http://") || path.startsWith("https://")) {
@@ -65,8 +71,13 @@ public class NetSubmitter implements Submitter {
         connection.setConnectTimeout(3000);
         connection.setReadTimeout(3000);
 
-        connection.setRequestProperty("Content-Encoding", "gzip");
-        connection.setRequestProperty("Content-Type", "application/octet-stream");
+        if (compressed) {
+            connection.setRequestProperty("Content-Encoding", "gzip");
+            connection.setRequestProperty("Content-Type", "application/octet-stream");
+        } else {
+            connection.setRequestProperty("Content-Type", "application/json");
+        }
+
         if (token != null && !token.isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + token);
         }
@@ -75,31 +86,35 @@ public class NetSubmitter implements Submitter {
         }
 
         try (OutputStream out = connection.getOutputStream()) {
-            out.write(compressed);
+            out.write(payload);
             out.flush();
         }
 
         int responseCode = connection.getResponseCode();
-        if (responseCode < 200 || responseCode >= 300) {
-            String responseBody = "";
-            try (InputStream errorStream = connection.getErrorStream() != null ? connection.getErrorStream() : connection.getInputStream()) {
-                if (errorStream != null) {
-                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(errorStream, StandardCharsets.UTF_8))) {
-                        StringBuilder sb = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            sb.append(line).append("\n");
-                        }
-                        responseBody = sb.toString().trim();
+        String responseBody = "";
+        try (InputStream stream = responseCode < 200 || responseCode >= 300 
+                ? (connection.getErrorStream() != null ? connection.getErrorStream() : connection.getInputStream())
+                : connection.getInputStream()) {
+            if (stream != null) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        sb.append(line).append("\n");
                     }
+                    responseBody = sb.toString().trim();
                 }
-            } catch (Exception ignored) {
             }
+        } catch (Exception ignored) {
+        }
+
+        if (responseCode < 200 || responseCode >= 300) {
             if (!responseBody.isEmpty()) {
                 throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody + ")");
             } else {
                 throw new Exception("HTTP request failed with status code: " + responseCode);
             }
         }
+        return responseBody;
     }
 }

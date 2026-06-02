@@ -56,16 +56,22 @@ public class HttpClientSubmitter implements Submitter {
         this.userAgent = userAgent;
     }
 
-    @Override
-    public void execute(String path, String json) throws Exception {
-        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
 
-        ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
-        try (GZIPOutputStream output = new GZIPOutputStream(byteOutput)) {
-            output.write(bytes);
-            output.finish();
+    @Override
+    public String execute(String path, String json, boolean compressed) throws Exception {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        byte[] payload;
+
+        if (compressed) {
+            ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
+            try (GZIPOutputStream output = new GZIPOutputStream(byteOutput)) {
+                output.write(bytes);
+                output.finish();
+            }
+            payload = byteOutput.toByteArray();
+        } else {
+            payload = bytes;
         }
-        byte[] compressed = byteOutput.toByteArray();
 
         String fullUrl;
         if (path.startsWith("http://") || path.startsWith("https://")) {
@@ -76,11 +82,16 @@ public class HttpClientSubmitter implements Submitter {
 
         URI targetUri = URI.create(fullUrl);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .POST(HttpRequest.BodyPublishers.ofByteArray(compressed))
-                .header("Content-Encoding", "gzip")
-                .header("Content-Type", "application/octet-stream")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
                 .timeout(Duration.ofSeconds(3))
                 .uri(targetUri);
+
+        if (compressed) {
+            builder.header("Content-Encoding", "gzip");
+            builder.header("Content-Type", "application/octet-stream");
+        } else {
+            builder.header("Content-Type", "application/json");
+        }
 
         if (token != null && !token.isEmpty()) {
             builder.header("Authorization", "Bearer " + token);
@@ -92,13 +103,14 @@ public class HttpClientSubmitter implements Submitter {
         HttpRequest request = builder.build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         int responseCode = response.statusCode();
+        String responseBody = response.body();
         if (responseCode < 200 || responseCode >= 300) {
-            String responseBody = response.body();
             if (responseBody != null && !responseBody.trim().isEmpty()) {
                 throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody.trim() + ")");
             } else {
                 throw new Exception("HTTP request failed with status code: " + responseCode);
             }
         }
+        return responseBody;
     }
 }

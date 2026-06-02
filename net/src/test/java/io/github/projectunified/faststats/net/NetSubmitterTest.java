@@ -72,7 +72,7 @@ public class NetSubmitterTest {
         NetSubmitter executor = new NetSubmitter(baseUrl, "my-secret-token", "MyAgent/1.0");
 
         String jsonPayload = "{\"test\":true,\"value\":123}";
-        executor.execute("/collect", jsonPayload);
+        executor.execute("/collect", jsonPayload, true);
 
         assertEquals("gzip", receivedContentEncoding);
         assertEquals("application/octet-stream", receivedContentType);
@@ -101,7 +101,7 @@ public class NetSubmitterTest {
         Exception exception = assertThrows(Exception.class, () -> {
             String baseUrl = "http://localhost:" + port;
             NetSubmitter executor = new NetSubmitter(baseUrl, "token", "Agent");
-            executor.execute("/collect", "{}");
+            executor.execute("/collect", "{}", true);
         });
         assertTrue(exception.getMessage().contains("500"));
         assertTrue(exception.getMessage().contains("Error Details Here"));

@@ -31,4 +31,10 @@ public class GsonSerializer implements Serializer {
     public String serialize(Map<String, Object> value) throws Exception {
         return gson.toJson(value);
     }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> deserialize(String json) throws Exception {
+        return gson.fromJson(json, Map.class);
+    }
 }

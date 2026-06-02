@@ -23,7 +23,7 @@ public class MetricsTest {
                 .addMetric(Metric.number("added_metric", () -> 42))
                 .build();
 
-        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), false);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));
@@ -51,7 +51,9 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
+        assertThrows(IllegalStateException.class, () -> {
+            metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), false);
+        });
 
         assertEquals(0, http.callCount);
     }
@@ -73,7 +75,7 @@ public class MetricsTest {
 
         Map<String, Object> dataMap = new LinkedHashMap<>();
         dataMap.put("custom_data", customPayload);
-        metrics.submit("/v1/collect", dataMap);
+        metrics.submit("/v1/collect", dataMap, false);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("custom_data={custom_key=custom_val}"));
@@ -116,7 +118,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()));
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), false);
 
         assertEquals(1, http.callCount);
         assertTrue(http.capturedJson.contains("map_metric={num=100, bool=true, custom=custom_val}"));
@@ -280,7 +282,7 @@ public class MetricsTest {
             }
 
             public void triggerSubmit(Map<String, Object> dataMap) throws Exception {
-                submit("/v1/collect", dataMap);
+                submit("/v1/collect", dataMap, false);
             }
         }
 
@@ -376,7 +378,7 @@ public class MetricsTest {
                 .submitter(http)
                 .build();
 
-        metrics.submit("/v1/collect", Collections.emptyMap());
+        metrics.submit("/v1/collect", Collections.emptyMap(), false);
 
         assertEquals(0, http.callCount);
     }

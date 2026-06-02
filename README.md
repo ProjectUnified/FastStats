@@ -59,6 +59,12 @@ Then, add the modules you need to your `pom.xml` without specifying versions:
     <artifactId>faststats-error-tracker</artifactId>
 </dependency>
 
+<!-- Feature Flag Feature -->
+<dependency>
+    <groupId>io.github.projectunified</groupId>
+    <artifactId>faststats-feature-flag</artifactId>
+</dependency>
+
 <!-- Platform -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
@@ -137,4 +143,41 @@ metrics = Metrics.builder()
         .addFeature(new PaperErrorTracker(this))
         .build();
 metrics.start();
+```
+
+### 4. Feature Flag Feature (`FeatureFlagManager`)
+To define dynamic remote feature flags, opt-in/opt-out status, and manage values with cache TTL, include the `faststats-feature-flag` module and register the `FeatureFlagManager` feature:
+
+```java
+import io.github.projectunified.faststats.featureflag.FeatureFlag;
+import io.github.projectunified.faststats.featureflag.FeatureFlagManager;
+
+// Inside onEnable:
+FeatureFlagManager flagManager = new FeatureFlagManager()
+        .ttl(Duration.ofMinutes(5)); // Custom TTL for cache
+
+// Define flags (Boolean, String, or Number)
+FeatureFlag<Boolean> newFeatureFlag = flagManager.define("new_awesome_feature", false);
+
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addFeature(flagManager)
+        .build();
+metrics.start();
+
+// Fetch feature flag asynchronously
+newFeatureFlag.fetch().thenAccept(enabled -> {
+    if (enabled) {
+        getLogger().info("Launching the new awesome feature!");
+    } else {
+        getLogger().info("New feature is disabled.");
+    }
+});
+
+// To opt-in or opt-out:
+newFeatureFlag.optIn().thenAccept(updatedVal -> {
+    getLogger().info("Successfully opted in. Updated value: " + updatedVal);
+});
 ```

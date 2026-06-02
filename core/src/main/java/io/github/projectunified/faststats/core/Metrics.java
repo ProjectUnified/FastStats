@@ -225,14 +225,14 @@ public final class Metrics {
         return data;
     }
 
-    String submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
+    Submitter.Response submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
         Config config = platform.getConfig();
         if (!config.isEnabled()) {
             logInfo("Submission is disabled.");
             throw new IllegalStateException("Metrics system is disabled");
         }
         if (dataMap.isEmpty()) {
-            return "";
+            return Submitter.Response.create(200, null, null);
         }
 
         Map<String, Object> payload = new LinkedHashMap<>(dataMap);
@@ -241,7 +241,7 @@ public final class Metrics {
         String json = serializer.serialize(payload);
         logInfo("Submitting payload: " + json);
         try {
-            String response = submitter.execute(path, json, compressed);
+            Submitter.Response response = submitter.execute(path, json, compressed);
             logInfo("Response received successfully.");
             return response;
         } catch (Exception e) {

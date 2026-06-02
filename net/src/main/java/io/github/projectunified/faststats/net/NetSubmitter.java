@@ -3,7 +3,8 @@ package io.github.projectunified.faststats.net;
 import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Submitter;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -42,7 +43,7 @@ public class NetSubmitter implements Submitter {
 
 
     @Override
-    public String execute(String path, String json, boolean compressed) throws Exception {
+    public Response execute(String path, String json, boolean compressed) throws Exception {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         byte[] payload;
 
@@ -64,57 +65,39 @@ public class NetSubmitter implements Submitter {
             fullUrl = this.baseUrl + path;
         }
 
-        URL targetUrl = new URL(fullUrl);
-        HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setConnectTimeout(3000);
-        connection.setReadTimeout(3000);
+        try {
+            URL targetUrl = new URL(fullUrl);
+            HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
 
-        if (compressed) {
-            connection.setRequestProperty("Content-Encoding", "gzip");
-            connection.setRequestProperty("Content-Type", "application/octet-stream");
-        } else {
-            connection.setRequestProperty("Content-Type", "application/json");
-        }
-
-        if (token != null && !token.isEmpty()) {
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-        }
-        if (userAgent != null && !userAgent.isEmpty()) {
-            connection.setRequestProperty("User-Agent", userAgent);
-        }
-
-        try (OutputStream out = connection.getOutputStream()) {
-            out.write(payload);
-            out.flush();
-        }
-
-        int responseCode = connection.getResponseCode();
-        String responseBody = "";
-        try (InputStream stream = responseCode < 200 || responseCode >= 300 
-                ? (connection.getErrorStream() != null ? connection.getErrorStream() : connection.getInputStream())
-                : connection.getInputStream()) {
-            if (stream != null) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-                    StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sb.append(line).append("\n");
-                    }
-                    responseBody = sb.toString().trim();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-
-        if (responseCode < 200 || responseCode >= 300) {
-            if (!responseBody.isEmpty()) {
-                throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody + ")");
+            if (compressed) {
+                connection.setRequestProperty("Content-Encoding", "gzip");
+                connection.setRequestProperty("Content-Type", "application/octet-stream");
             } else {
-                throw new Exception("HTTP request failed with status code: " + responseCode);
+                connection.setRequestProperty("Content-Type", "application/json");
             }
+
+            if (token != null && !token.isEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+            }
+            if (userAgent != null && !userAgent.isEmpty()) {
+                connection.setRequestProperty("User-Agent", userAgent);
+            }
+
+            try (OutputStream out = connection.getOutputStream()) {
+                out.write(payload);
+                out.flush();
+            }
+
+            int responseCode = connection.getResponseCode();
+            return Response.create(responseCode, () -> responseCode < 200 || responseCode >= 300
+                    ? (connection.getErrorStream() != null ? connection.getErrorStream() : connection.getInputStream())
+                    : connection.getInputStream(), null);
+        } catch (Exception e) {
+            return Response.create(0, null, e);
         }
-        return responseBody;
     }
 }

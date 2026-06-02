@@ -1,6 +1,7 @@
 package io.github.projectunified.faststats.net;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.projectunified.faststats.core.Submitter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -96,14 +97,22 @@ public class NetSubmitterTest {
     }
 
     @Test
-    public void testFailureExecution() {
+    public void testFailureExecution() throws Exception {
         responseStatus = 500;
-        Exception exception = assertThrows(Exception.class, () -> {
-            String baseUrl = "http://localhost:" + port;
-            NetSubmitter executor = new NetSubmitter(baseUrl, "token", "Agent");
-            executor.execute("/collect", "{}", true);
-        });
-        assertTrue(exception.getMessage().contains("500"));
-        assertTrue(exception.getMessage().contains("Error Details Here"));
+        String baseUrl = "http://localhost:" + port;
+        NetSubmitter executor = new NetSubmitter(baseUrl, "token", "Agent");
+        Submitter.Response response = executor.execute("/collect", "{}", true);
+        assertEquals(500, response.getStatusCode());
+        String responseBody;
+        try (InputStream in = response.getInputStream();
+             java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            responseBody = sb.toString().trim();
+        }
+        assertTrue(responseBody.contains("Error Details Here"));
     }
 }

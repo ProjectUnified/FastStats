@@ -8,10 +8,10 @@ class CapturingSubmitter implements Submitter {
     int callCount = 0;
 
     @Override
-    public String execute(String path, String json, boolean compressed) {
+    public Response execute(String path, String json, boolean compressed) {
         this.capturedPath = path;
         this.capturedJson = json;
         this.callCount++;
-        return "";
+        return Response.create(200, null, null);
     }
 }

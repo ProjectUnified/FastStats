@@ -1,10 +1,9 @@
 package io.github.projectunified.faststats.featureflag;
 
+import io.github.projectunified.faststats.core.CapturingSubmitter;
 import io.github.projectunified.faststats.core.Metrics;
 import io.github.projectunified.faststats.core.MockPlatform;
-import io.github.projectunified.faststats.core.CapturingSubmitter;
 import io.github.projectunified.faststats.core.SimpleSerializer;
-
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

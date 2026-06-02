@@ -1,6 +1,7 @@
 package io.github.projectunified.faststats.featureflag;
 
 import io.github.projectunified.faststats.core.Feature;
+import io.github.projectunified.faststats.core.Submitter;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -170,8 +171,7 @@ public final class FeatureFlagManager extends Feature {
                     Map<String, Object> requestBody = new LinkedHashMap<>();
                     requestBody.put("key", flag.getId());
 
-                    Map<String, Object> mergedAttributes = new LinkedHashMap<>();
-                    mergedAttributes.putAll(this.attributes);
+                    Map<String, Object> mergedAttributes = new LinkedHashMap<>(this.attributes);
                     if (flag.attributes() != null) {
                         mergedAttributes.putAll(flag.attributes());
                     }
@@ -180,7 +180,14 @@ public final class FeatureFlagManager extends Feature {
                     }
 
                     String url = getFullUrl("/v1/check");
-                    String responseStr = submit(url, requestBody, false);
+                    Submitter.Response response = submit(url, requestBody, false);
+                    if (response.getException().isPresent()) {
+                        throw response.getException().get();
+                    }
+                    if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                        throw new IllegalStateException("Unexpected response status: " + response.getStatusCode());
+                    }
+                    String responseStr = response.readString();
                     Map<String, Object> responseMap = deserialize(responseStr);
 
                     Object rawValue = responseMap.get("value");
@@ -223,7 +230,13 @@ public final class FeatureFlagManager extends Feature {
                 requestBody.put("flag", flag.getId());
 
                 String url = getFullUrl(path);
-                submit(url, requestBody, false);
+                Submitter.Response response = submit(url, requestBody, false);
+                if (response.getException().isPresent()) {
+                    throw response.getException().get();
+                }
+                if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                    throw new IllegalStateException("Unexpected response status: " + response.getStatusCode());
+                }
                 return fetch(flag).get();
             } catch (Exception e) {
                 throw new IllegalStateException("Failed to opt request: " + flag.getId(), e);

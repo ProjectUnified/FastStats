@@ -75,17 +75,18 @@ public abstract class Feature {
 
 
     /**
-     * Submits the given data map payload and returns the raw response.
+     * Submits the given data map payload and returns the response.
      *
      * @param path       the target path or URL
      * @param dataMap    a map of keys to their data maps
      * @param compressed whether to compress the payload using GZIP
-     * @return the raw response body
+     * @return the response context
      * @throws Exception if submission fails
      */
-    protected final String submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
+    protected final Submitter.Response submit(String path, Map<String, Object> dataMap, boolean compressed) throws Exception {
         return getMetrics().submit(path, dataMap, compressed);
     }
+
 
     /**
      * Deserializes the given JSON string into a telemetry map.

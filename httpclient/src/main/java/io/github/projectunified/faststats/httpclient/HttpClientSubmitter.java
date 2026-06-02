@@ -4,6 +4,7 @@ import io.github.projectunified.faststats.core.BuildInfo;
 import io.github.projectunified.faststats.core.Submitter;
 
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -58,7 +59,7 @@ public class HttpClientSubmitter implements Submitter {
 
 
     @Override
-    public String execute(String path, String json, boolean compressed) throws Exception {
+    public Submitter.Response execute(String path, String json, boolean compressed) throws Exception {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         byte[] payload;
 
@@ -100,17 +101,12 @@ public class HttpClientSubmitter implements Submitter {
             builder.header("User-Agent", userAgent);
         }
 
-        HttpRequest request = builder.build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        int responseCode = response.statusCode();
-        String responseBody = response.body();
-        if (responseCode < 200 || responseCode >= 300) {
-            if (responseBody != null && !responseBody.trim().isEmpty()) {
-                throw new Exception("HTTP request failed with status code: " + responseCode + " (" + responseBody.trim() + ")");
-            } else {
-                throw new Exception("HTTP request failed with status code: " + responseCode);
-            }
+        try {
+            HttpRequest request = builder.build();
+            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            return Response.create(response.statusCode(), response::body, null);
+        } catch (Exception e) {
+            return Response.create(0, null, e);
         }
-        return responseBody;
     }
 }

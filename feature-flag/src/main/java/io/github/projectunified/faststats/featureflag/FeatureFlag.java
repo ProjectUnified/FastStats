@@ -21,15 +21,6 @@ public final class FeatureFlag<T> {
     private volatile T value;
     private volatile Long lastFetch;
 
-    /**
-     * Supported value types for feature flags.
-     */
-    public enum Type {
-        STRING,
-        BOOLEAN,
-        NUMBER
-    }
-
     FeatureFlag(String id, T defaultValue, Map<String, Object> attributes, FeatureFlagManager manager) {
         this.id = id;
         this.defaultValue = defaultValue;
@@ -201,5 +192,14 @@ public final class FeatureFlag<T> {
     @Override
     public String toString() {
         return "FeatureFlag{id='" + id + "'}";
+    }
+
+    /**
+     * Supported value types for feature flags.
+     */
+    public enum Type {
+        STRING,
+        BOOLEAN,
+        NUMBER
     }
 }

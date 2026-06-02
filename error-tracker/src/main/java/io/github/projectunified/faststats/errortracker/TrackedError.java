@@ -21,6 +21,26 @@ public final class TrackedError {
         this.error = error;
     }
 
+    private static boolean deepEquals(Throwable first, Throwable second, Set<Throwable> visited) {
+        if (first == second) return true;
+        if (first == null || second == null) return false;
+        if (first.getClass() != second.getClass()) return false;
+        if (!Objects.equals(first.getMessage(), second.getMessage())) return false;
+        if (!Arrays.equals(first.getStackTrace(), second.getStackTrace())) return false;
+        if (!visited.add(first)) return true;
+        return deepEquals(first.getCause(), second.getCause(), visited);
+    }
+
+    private static int hash(Throwable error, Set<Throwable> visited) {
+        if (error == null || !visited.add(error)) return 0;
+        return Objects.hash(
+                error.getClass(),
+                error.getMessage(),
+                Arrays.hashCode(error.getStackTrace()),
+                hash(error.getCause(), visited)
+        );
+    }
+
     /**
      * Returns the tracked error.
      *
@@ -110,25 +130,5 @@ public final class TrackedError {
     @Override
     public int hashCode() {
         return Objects.hash(attributes, handled, hash(error, Collections.newSetFromMap(new IdentityHashMap<>())));
-    }
-
-    private static boolean deepEquals(Throwable first, Throwable second, Set<Throwable> visited) {
-        if (first == second) return true;
-        if (first == null || second == null) return false;
-        if (first.getClass() != second.getClass()) return false;
-        if (!Objects.equals(first.getMessage(), second.getMessage())) return false;
-        if (!Arrays.equals(first.getStackTrace(), second.getStackTrace())) return false;
-        if (!visited.add(first)) return true;
-        return deepEquals(first.getCause(), second.getCause(), visited);
-    }
-
-    private static int hash(Throwable error, Set<Throwable> visited) {
-        if (error == null || !visited.add(error)) return 0;
-        return Objects.hash(
-                error.getClass(),
-                error.getMessage(),
-                Arrays.hashCode(error.getStackTrace()),
-                hash(error.getCause(), visited)
-        );
     }
 }

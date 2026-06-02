@@ -35,6 +35,7 @@
         <module>net</module>
         <module>httpclient</module>
         <module>error-tracker</module>
+        <module>feature-flag</module>
         <module>paper</module>
         <module>bungeecord</module>
         <module>hytale</module>

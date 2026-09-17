@@ -5,6 +5,10 @@ import java.util.concurrent.Callable;
 
 /**
  * Represents a single telemetry data source.
+ * <p>
+ * Metric names must match {@code ^[a-z0-9_]+$}; invalid names are rejected when
+ * the metric is created. Values are normalized to types supported by the
+ * telemetry payload, see {@link SimpleMetric#normalize(Object)}.
  *
  * @param <T> the type of value this metric holds
  */
@@ -15,19 +19,10 @@ public interface Metric<T> {
      * @param name     the name of the metric
      * @param supplier the callable providing the value
      * @return a new Metric instance returning a String
+     * @throws IllegalArgumentException if the name is invalid
      */
     static Metric<String> string(final String name, final Callable<String> supplier) {
-        return new Metric<String>() {
-            @Override
-            public String getName() {
-                return name;
-            }
-
-            @Override
-            public String getValue() throws Exception {
-                return supplier.call();
-            }
-        };
+        return new SimpleMetric<>(name, supplier);
     }
 
     /**
@@ -36,19 +31,10 @@ public interface Metric<T> {
      * @param name     the name of the metric
      * @param supplier the callable providing the value
      * @return a new Metric instance returning a Number
+     * @throws IllegalArgumentException if the name is invalid
      */
     static Metric<Number> number(final String name, final Callable<Number> supplier) {
-        return new Metric<Number>() {
-            @Override
-            public String getName() {
-                return name;
-            }
-
-            @Override
-            public Number getValue() throws Exception {
-                return supplier.call();
-            }
-        };
+        return new SimpleMetric<>(name, supplier);
     }
 
     /**
@@ -57,132 +43,85 @@ public interface Metric<T> {
      * @param name     the name of the metric
      * @param supplier the callable providing the value
      * @return a new Metric instance returning a Boolean
+     * @throws IllegalArgumentException if the name is invalid
      */
     static Metric<Boolean> bool(final String name, final Callable<Boolean> supplier) {
-        return new Metric<Boolean>() {
-            @Override
-            public String getName() {
-                return name;
-            }
-
-            @Override
-            public Boolean getValue() throws Exception {
-                return supplier.call();
-            }
-        };
+        return new SimpleMetric<>(name, supplier);
     }
 
     /**
      * Creates a new Map metric.
-     * Entry values are automatically normalized to standard supported types (Boolean, Number, String).
+     * Entry values are normalized to standard supported types (Boolean, Number, String),
+     * nested maps, collections and arrays are normalized recursively.
      *
      * @param name     the name of the metric
      * @param supplier the callable providing the map
      * @param <V>      the original value type of the map
      * @return a new Metric instance returning a normalized Map
+     * @throws IllegalArgumentException if the name is invalid
      */
     static <V> Metric<Map<String, Object>> map(final String name, final Callable<Map<String, V>> supplier) {
-        return new Metric<Map<String, Object>>() {
-            @Override
-            public String getName() {
-                return name;
+        return new SimpleMetric<>(name, () -> {
+            Map<String, V> original = supplier.call();
+            if (original == null) {
+                return null;
             }
-
-            @Override
-            public Map<String, Object> getValue() throws Exception {
-                Map<String, V> original = supplier.call();
-                if (original == null) {
-                    return null;
-                }
-                Map<String, Object> result = new LinkedHashMap<>();
-                for (Map.Entry<String, V> entry : original.entrySet()) {
-                    Object val = entry.getValue();
-                    if (val instanceof Boolean || val instanceof Number) {
-                        result.put(entry.getKey(), val);
-                    } else if (val != null) {
-                        result.put(entry.getKey(), val.toString());
-                    } else {
-                        result.put(entry.getKey(), null);
-                    }
-                }
-                return result;
+            Map<String, Object> result = new LinkedHashMap<>(original.size());
+            for (Map.Entry<String, V> entry : original.entrySet()) {
+                result.put(entry.getKey(), SimpleMetric.normalize(entry.getValue()));
             }
-        };
+            return result;
+        });
     }
 
     /**
      * Creates a new Collection metric.
-     * Elements are automatically normalized to standard supported types (Boolean, Number, String).
+     * Elements are normalized to standard supported types (Boolean, Number, String),
+     * nested maps, collections and arrays are normalized recursively.
      *
      * @param name     the name of the metric
      * @param supplier the callable providing the collection
      * @param <E>      the original element type of the collection
      * @return a new Metric instance returning a normalized Collection
+     * @throws IllegalArgumentException if the name is invalid
      */
     static <E> Metric<Collection<Object>> collection(final String name, final Callable<Collection<E>> supplier) {
-        return new Metric<Collection<Object>>() {
-            @Override
-            public String getName() {
-                return name;
+        return new SimpleMetric<>(name, () -> {
+            Collection<E> original = supplier.call();
+            if (original == null) {
+                return null;
             }
-
-            @Override
-            public Collection<Object> getValue() throws Exception {
-                Collection<E> original = supplier.call();
-                if (original == null) {
-                    return null;
-                }
-                List<Object> result = new ArrayList<>(original.size());
-                for (E element : original) {
-                    if (element instanceof Boolean || element instanceof Number) {
-                        result.add(element);
-                    } else if (element != null) {
-                        result.add(element.toString());
-                    } else {
-                        result.add(null);
-                    }
-                }
-                return result;
+            List<Object> result = new ArrayList<>(original.size());
+            for (E element : original) {
+                result.add(SimpleMetric.normalize(element));
             }
-        };
+            return result;
+        });
     }
 
     /**
      * Creates a new Array metric.
-     * Elements are automatically normalized to standard supported types (Boolean, Number, String).
+     * Elements are normalized to standard supported types (Boolean, Number, String),
+     * nested maps, collections and arrays are normalized recursively.
      *
      * @param name     the name of the metric
      * @param supplier the callable providing the array
      * @param <E>      the original element type of the array
      * @return a new Metric instance returning a normalized Array
+     * @throws IllegalArgumentException if the name is invalid
      */
     static <E> Metric<Object[]> array(final String name, final Callable<E[]> supplier) {
-        return new Metric<Object[]>() {
-            @Override
-            public String getName() {
-                return name;
+        return new SimpleMetric<>(name, () -> {
+            E[] original = supplier.call();
+            if (original == null) {
+                return null;
             }
-
-            @Override
-            public Object[] getValue() throws Exception {
-                E[] original = supplier.call();
-                if (original == null) {
-                    return null;
-                }
-                Object[] result = new Object[original.length];
-                for (int i = 0; i < original.length; i++) {
-                    E element = original[i];
-                    if (element instanceof Boolean || element instanceof Number) {
-                        result[i] = element;
-                    } else if (element != null) {
-                        result[i] = element.toString();
-                    } else {
-                        result[i] = null;
-                    }
-                }
-                return result;
+            Object[] result = new Object[original.length];
+            for (int i = 0; i < original.length; i++) {
+                result[i] = SimpleMetric.normalize(original[i]);
             }
-        };
+            return result;
+        });
     }
 
     /**

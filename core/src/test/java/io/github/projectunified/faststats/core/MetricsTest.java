@@ -3,6 +3,7 @@ package io.github.projectunified.faststats.core;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -35,6 +36,161 @@ public class MetricsTest {
         assertTrue(http.capturedJson.contains("os_arch="));
         assertTrue(http.capturedJson.contains("os_name="));
         assertTrue(http.capturedJson.contains("os_version="));
+    }
+
+    @Test
+    public void testCollectPayload() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        MockTaskScheduler scheduler = new MockTaskScheduler();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(new SimpleSerializer())
+                .submitter(http)
+                .scheduler(scheduler)
+                .build();
+
+        metrics.start(1000, 5000);
+        scheduler.scheduledTask.run();
+
+        assertEquals(1, http.callCount);
+        assertEquals("/v1/collect", http.capturedPath);
+        assertTrue(http.capturedJson.contains("project_name=Mock Project"));
+        assertTrue(http.capturedJson.contains("client=false"));
+        assertTrue(http.capturedJson.contains("identifier=12345678-1234-1234-1234-123456789abc"));
+    }
+
+    @Test
+    public void testShutdown_submitsFinalMetrics() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        MockTaskScheduler scheduler = new MockTaskScheduler();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(new SimpleSerializer())
+                .submitter(http)
+                .scheduler(scheduler)
+                .build();
+
+        metrics.start(1000, 5000);
+        assertEquals(0, http.callCount);
+
+        metrics.shutdown();
+        assertTrue(scheduler.shutdownCalled);
+        assertEquals(1, http.callCount);
+        assertEquals("/v1/collect", http.capturedPath);
+        assertTrue(http.capturedJson.contains("project_name=Mock Project"));
+
+        // Nothing is submitted when the user opted out of metrics submission
+        MockPlatform disabledPlatform = new MockPlatform();
+        disabledPlatform.config.submitMetrics = false;
+        CapturingSubmitter disabledHttp = new CapturingSubmitter();
+
+        Metrics disabledMetrics = Metrics.builder()
+                .platform(disabledPlatform)
+                .serializer(new SimpleSerializer())
+                .submitter(disabledHttp)
+                .scheduler(new MockTaskScheduler())
+                .build();
+
+        disabledMetrics.shutdown();
+        assertEquals(0, disabledHttp.callCount);
+    }
+
+    @Test
+    public void testSubmit_reportsUnsuccessfulResponse() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(serializer)
+                .submitter(http)
+                .build();
+
+        http.statusCode = 500;
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), true);
+
+        assertEquals(1, http.callCount);
+        assertEquals(1, platform.loggedErrors.size());
+        assertTrue(platform.loggedErrors.get(0).contains("500"));
+        assertTrue(platform.loggedWarnings.isEmpty());
+
+        platform.loggedErrors.clear();
+        http.statusCode = 200;
+        http.response = "{warnings=[duplicate metric]}";
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), true);
+
+        assertTrue(platform.loggedErrors.isEmpty());
+        assertEquals(1, platform.loggedWarnings.size());
+        assertTrue(platform.loggedWarnings.get(0).contains("warnings"));
+    }
+
+    @Test
+    public void testMetricNameValidation() {
+        assertThrows(IllegalArgumentException.class, () -> Metric.string("Invalid Metric", () -> "value"));
+        assertThrows(IllegalArgumentException.class, () -> Metric.number("camelCase", () -> 1));
+        assertNotNull(Metric.string("valid_name_2", () -> "value"));
+
+        Metrics.Builder builder = Metrics.builder()
+                .platform(new MockPlatform())
+                .serializer(new SimpleSerializer())
+                .submitter(new CapturingSubmitter())
+                .addMetric(Metric.string("duplicate_metric", () -> "a"));
+
+        assertThrows(IllegalArgumentException.class, () -> builder.addMetric(Metric.number("duplicate_metric", () -> 1)));
+    }
+
+    @Test
+    public void testDuplicateMetricEntrySkipped() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        platform.metrics.add(Metric.string("shared_metric", () -> "platform_value"));
+
+        CapturingSubmitter http = new CapturingSubmitter();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(new SimpleSerializer())
+                .submitter(http)
+                .addMetric(Metric.string("shared_metric", () -> "custom_value"))
+                .build();
+
+        metrics.submit("/v1/collect", Collections.singletonMap("data", metrics.getDefaultContext()), true);
+
+        assertTrue(http.capturedJson.contains("shared_metric=platform_value"));
+        assertFalse(http.capturedJson.contains("custom_value"));
+        assertEquals(1, platform.loggedWarnings.size());
+    }
+
+    @Test
+    public void testFlushCallback_afterSuccessfulSubmission() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter http = new CapturingSubmitter();
+        MockTaskScheduler scheduler = new MockTaskScheduler();
+        AtomicInteger flushes = new AtomicInteger();
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .serializer(new SimpleSerializer())
+                .submitter(http)
+                .scheduler(scheduler)
+                .onFlush(flushes::incrementAndGet)
+                .build();
+
+        metrics.start(1000, 5000);
+        scheduler.scheduledTask.run();
+
+        assertEquals(1, http.callCount);
+        assertEquals(1, flushes.get());
+
+        http.statusCode = 500;
+        scheduler.scheduledTask.run();
+
+        assertEquals(2, http.callCount);
+        assertEquals(1, flushes.get());
     }
 
     @Test

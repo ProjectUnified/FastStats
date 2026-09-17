@@ -39,11 +39,17 @@ public class NukkitPlatform implements Platform {
 
     private void setupDefaultMetrics() {
         Server server = plugin.getServer();
-        defaultMetrics.add(Metric.string("minecraft_version", server::getVersion));
+        defaultMetrics.add(Metric.string("game_version", server::getVersion));
         defaultMetrics.add(Metric.bool("online_mode", () -> server.xboxAuth));
         defaultMetrics.add(Metric.number("player_count", server::getOnlinePlayersCount));
         defaultMetrics.add(Metric.string("plugin_version", () -> plugin.getDescription().getVersion()));
+        defaultMetrics.add(Metric.string("platform_version", server::getNukkitVersion));
         defaultMetrics.add(Metric.string("server_type", server::getName));
+    }
+
+    @Override
+    public String getProjectName() {
+        return plugin.getName();
     }
 
     @Override

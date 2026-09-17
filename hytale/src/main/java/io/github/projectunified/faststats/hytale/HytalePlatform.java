@@ -1,6 +1,7 @@
 package io.github.projectunified.faststats.hytale;
 
-import com.hypixel.hytale.server.core.HytaleServer;
+import com.hypixel.hytale.common.util.java.ManifestUtil;
+import com.hypixel.hytale.server.core.auth.ServerAuthManager;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.universe.Universe;
 import io.github.projectunified.faststats.core.Config;
@@ -35,9 +36,17 @@ public class HytalePlatform implements Platform {
     }
 
     private void setupDefaultMetrics() {
-        defaultMetrics.add(Metric.string("server_version", () -> HytaleServer.get().getServerName()));
+        defaultMetrics.add(Metric.string("game_version", () -> ManifestUtil.getImplementationVersion()));
+        defaultMetrics.add(Metric.bool("online_mode", () -> ServerAuthManager.getInstance().getAuthMode() != ServerAuthManager.AuthMode.NONE));
         defaultMetrics.add(Metric.number("player_count", () -> Universe.get().getPlayerCount()));
-        defaultMetrics.add(Metric.string("server_type", () -> "Hytale"));
+        defaultMetrics.add(Metric.string("plugin_version", () -> plugin.getManifest().getVersion().toString()));
+        defaultMetrics.add(Metric.string("platform_version", () -> ManifestUtil.getVersion()));
+        defaultMetrics.add(Metric.string("server_type", () -> "Hytale Server"));
+    }
+
+    @Override
+    public String getProjectName() {
+        return plugin.getName();
     }
 
     @Override

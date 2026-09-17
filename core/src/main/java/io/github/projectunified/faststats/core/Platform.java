@@ -8,6 +8,16 @@ import java.util.Collection;
  */
 public interface Platform {
     /**
+     * Gets the name of the project (plugin, mod, ...) reporting metrics.
+     * <p>
+     * This name is submitted along with the metrics so the service can
+     * associate the data with the correct project.
+     *
+     * @return the project name
+     */
+    String getProjectName();
+
+    /**
      * Retrieves the platform-specific configuration.
      *
      * @return the platform config instance

@@ -18,17 +18,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class DefaultConfig implements Config {
     public static final String[] DEFAULT_COMMENT = {
-            " FastStats (https://faststats.dev) collects anonymous usage statistics for plugin developers.",
+            " FastStats (https://faststats.dev) collects pseudonymous usage statistics and errors.",
             "# This helps developers understand how their projects are used in the real world.",
             "#",
             "# No IP addresses, player data, or personal information is collected.",
             "# The server ID below is randomly generated and can be regenerated at any time.",
             "#",
             "# Enabling metrics has no noticeable performance impact.",
-            "# Keeping metrics enabled is recommended, but you can opt out by setting",
-            "# 'enabled=false' in plugins/faststats/config.properties.",
+            "# Keeping FastStats enabled is recommended.",
+            "# To disable all FastStats features, set 'enabled=false'.",
+            "# To disable only metrics submission, set 'submitMetrics=false'.",
+            "# To disable only additional metrics, set 'submitAdditionalMetrics=false'.",
+            "# To disable only error tracking, set 'submitErrors=false'.",
             "#",
-            "# If you suspect a plugin is collecting personal data or bypassing the \"enabled\" option,",
+            "# If you suspect a developer is collecting personal data or bypassing any opt-out option,",
             "# please report it at: https://faststats.dev/abuse",
             "#",
             "# For more information, visit: https://faststats.dev/info"
@@ -158,6 +161,13 @@ public class DefaultConfig implements Config {
         boolean submitMetrics = getBooleanProperty(properties, "submitMetrics", true, saveConfig);
         boolean additionalMetrics = getBooleanProperty(properties, "submitAdditionalMetrics", true, saveConfig);
         boolean debug = getBooleanProperty(properties, "debug", false, saveConfig);
+
+        // System properties override the configuration file without modifying it
+        boolean enabledFlag = Boolean.parseBoolean(System.getProperty("faststats.enabled", "true"));
+        enabled = enabled && enabledFlag;
+        submitMetrics = submitMetrics && enabledFlag;
+        additionalMetrics = additionalMetrics && enabledFlag;
+        debug = debug || Boolean.getBoolean("faststats.debug");
 
         properties.setProperty("configVersion", "1");
 

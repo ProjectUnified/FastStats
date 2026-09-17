@@ -39,8 +39,13 @@ public class BungeePlatform implements Platform {
         defaultMetrics.add(Metric.bool("online_mode", () -> server.getConfig().isOnlineMode()));
         defaultMetrics.add(Metric.number("player_count", server::getOnlineCount));
         defaultMetrics.add(Metric.string("plugin_version", () -> plugin.getDescription().getVersion()));
-        defaultMetrics.add(Metric.string("proxy_version", server::getVersion));
+        defaultMetrics.add(Metric.string("platform_version", server::getVersion));
         defaultMetrics.add(Metric.string("server_type", server::getName));
+    }
+
+    @Override
+    public String getProjectName() {
+        return plugin.getDescription().getName();
     }
 
     @Override

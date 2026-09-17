@@ -33,10 +33,16 @@ public class MinestomPlatform implements Platform {
     }
 
     private void setupDefaultMetrics() {
-        defaultMetrics.add(Metric.string("minecraft_version", () -> MinecraftServer.VERSION_NAME));
+        defaultMetrics.add(Metric.string("game_version", () -> MinecraftServer.VERSION_NAME));
         defaultMetrics.add(Metric.bool("online_mode", () -> !(MinecraftServer.process().auth() instanceof Auth.Offline)));
         defaultMetrics.add(Metric.number("player_count", () -> MinecraftServer.getConnectionManager().getOnlinePlayerCount()));
+        defaultMetrics.add(Metric.string("platform_version", () -> MinecraftServer.getBrandName() + " " + MinecraftServer.VERSION_NAME));
         defaultMetrics.add(Metric.string("server_type", () -> "Minestom"));
+    }
+
+    @Override
+    public String getProjectName() {
+        return MinecraftServer.getBrandName();
     }
 
     @Override

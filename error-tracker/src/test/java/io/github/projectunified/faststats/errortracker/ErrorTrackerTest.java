@@ -85,6 +85,92 @@ public class ErrorTrackerTest {
     }
 
     @Test
+    public void testSubmitErrors_retainsReportsOnFailure() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ErrorTracker tracker = ErrorTracker.contextUnaware();
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
+        submitter.statusCode = 500;
+        tracker.trackError(new RuntimeException("Retained error"));
+        tracker.submitErrors();
+        assertEquals(1, submitter.callCount);
+
+        // The rejected report is kept for the next submission attempt
+        tracker.submitErrors();
+        assertEquals(2, submitter.callCount);
+        assertTrue(submitter.capturedJson.contains("Retained error"));
+
+        submitter.statusCode = 200;
+        tracker.submitErrors();
+        assertEquals(3, submitter.callCount);
+
+        // Accepted reports are dropped
+        tracker.submitErrors();
+        assertEquals(3, submitter.callCount);
+    }
+
+    @Test
+    public void testTrackError_snapshotIsImmutable() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ErrorTracker tracker = ErrorTracker.contextUnaware();
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
+        RuntimeException error = new RuntimeException("Snapshot error");
+        error.setStackTrace(new StackTraceElement[]{
+                new StackTraceElement("example.Plugin", "run", "Plugin.java", 42)
+        });
+        tracker.trackError(error);
+
+        error.setStackTrace(new StackTraceElement[]{
+                new StackTraceElement("example.Plugin", "mutated", "Plugin.java", 99)
+        });
+
+        tracker.submitErrors();
+
+        assertEquals(1, submitter.callCount);
+        assertTrue(submitter.capturedJson.contains("Plugin.java:42"));
+        assertFalse(submitter.capturedJson.contains("mutated"));
+    }
+
+    @Test
+    public void testTrackError_messageFallsBackToCause() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        ErrorTracker tracker = ErrorTracker.contextUnaware();
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(tracker)
+                .build();
+
+        tracker.trackError(new RuntimeException(null, new IllegalArgumentException("cause message")));
+        tracker.submitErrors();
+
+        assertEquals(1, submitter.callCount);
+        assertTrue(submitter.capturedJson.contains("message=cause message"));
+        assertTrue(submitter.capturedJson.contains("java.lang.RuntimeException"));
+    }
+
+    @Test
     public void testIgnoreError_byType() throws Exception {
         MockPlatform platform = new MockPlatform();
         CapturingSubmitter submitter = new CapturingSubmitter();

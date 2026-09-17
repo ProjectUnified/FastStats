@@ -45,8 +45,13 @@ public class VelocityPlatform implements Platform {
         defaultMetrics.add(Metric.bool("online_mode", () -> server.getConfiguration().isOnlineMode()));
         defaultMetrics.add(Metric.number("player_count", server::getPlayerCount));
         defaultMetrics.add(Metric.string("plugin_version", () -> plugin.getDescription().getVersion().orElse("unknown")));
-        defaultMetrics.add(Metric.string("proxy_version", () -> server.getVersion().getVersion()));
+        defaultMetrics.add(Metric.string("platform_version", () -> server.getVersion().getVersion()));
         defaultMetrics.add(Metric.string("server_type", () -> server.getVersion().getName()));
+    }
+
+    @Override
+    public String getProjectName() {
+        return plugin.getDescription().getId();
     }
 
     @Override

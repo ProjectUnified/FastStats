@@ -7,6 +7,7 @@ A client implementation for [FastStats](https://faststats.dev)
 - **Modular Sub-modules**: Key features, serialization engines, network submitters, and server platforms are split into individual sub-modules. Users can import only what is required for their specific use cases instead of importing monolithic dependencies.
 - **Java 8 Support**: The library targets Java 8 compatibility across all modules (except `faststats-httpclient` and some platforms that require newer Java versions).
 - **Separated Error Tracker**: The error tracking mechanism is isolated as a standalone, optional feature module (`faststats-error-tracker`) instead of being bundled directly in core.
+- **Same wire format**: Endpoints, payloads and opt-out switches follow `faststats-java`, including the `project_name` field, the feature flag request bodies, and the error reporting limits and redactions.
 
 ## Installation
 
@@ -181,3 +182,51 @@ newFeatureFlag.optIn().thenAccept(updatedVal -> {
     getLogger().info("Successfully opted in. Updated value: " + updatedVal);
 });
 ```
+
+### 5. Flush Callbacks
+
+`onFlush` runs after the metrics payload has been accepted by the server, which makes it suitable for
+resetting counters that accumulate between submissions:
+
+```java
+AtomicInteger gamesPlayed = new AtomicInteger();
+
+metrics = Metrics.builder()
+        .platform(new BukkitPlatform(this))
+        .serializer(new GsonSerializer())
+        .submitter(new NetSubmitter("YOUR_TOKEN"))
+        .addMetric(Metric.number("games_played", gamesPlayed::get))
+        .onFlush(() -> gamesPlayed.set(0))
+        .build();
+```
+
+## Configuration
+
+FastStats reads `<platform data folder>/faststats/config.properties`, which is created on the first start. On that
+first start submission stays disabled until the server is restarted, so the file can be reviewed before opting in.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Master switch for all FastStats features |
+| `submitMetrics` | `true` | Periodic metrics submission |
+| `submitAdditionalMetrics` | `true` | Submission of metrics added through `Metrics.Builder#addMetric` |
+| `submitErrors` | `true` | Error tracking, only used by the `faststats-error-tracker` module |
+| `debug` | `false` | Verbose logging |
+| `serverId` | random UUID | Identifier submitted with every payload |
+| `project-name` | platform project name | Overrides the `project_name` field of error reports |
+
+System properties override the configuration file without modifying it:
+
+| Property | Description |
+| --- | --- |
+| `-Dfaststats.enabled=false` | Disables all FastStats features, including metrics and error tracking |
+| `-Dfaststats.debug=true` | Forces debug logging |
+| `-Dfaststats.initial-delay=<seconds>` | Delay before the first submission, default `30` |
+| `-Dfaststats.flags-server=<url>` | Overrides the feature flag server |
+| `-Dfaststats.error-tracker-server=<path or url>` | Overrides the error submission endpoint |
+| `-Dfaststats.message-length=<chars>` | Error message truncation length, default `1000` |
+| `-Dfaststats.stack-trace-length=<chars>` | Stack frame truncation length, default `300` |
+| `-Dfaststats.stack-trace-limit=<frames>` | Stack frames kept per throwable, default `30` |
+
+Custom platform implementations must implement `Platform#getProjectName()`. The returned name is submitted as
+`project_name` alongside the metrics, which is how the service attributes submissions to a project.

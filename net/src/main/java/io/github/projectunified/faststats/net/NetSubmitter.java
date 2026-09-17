@@ -70,6 +70,7 @@ public class NetSubmitter implements Submitter {
             HttpURLConnection connection = (HttpURLConnection) targetUrl.openConnection();
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
+            connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(3000);
             connection.setReadTimeout(3000);
 

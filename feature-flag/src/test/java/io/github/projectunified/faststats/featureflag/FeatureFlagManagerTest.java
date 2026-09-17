@@ -110,6 +110,38 @@ public class FeatureFlagManagerTest {
     }
 
     @Test
+    public void testOptRequestSendsKeyAndAttributes() throws Exception {
+        MockPlatform platform = new MockPlatform();
+        CapturingSubmitter submitter = new CapturingSubmitter();
+        SimpleSerializer serializer = new SimpleSerializer();
+
+        FeatureFlagManager manager = new FeatureFlagManager();
+        manager.attributes(map -> map.put("global_attr", "global_val"));
+
+        Metrics metrics = Metrics.builder()
+                .platform(platform)
+                .submitter(submitter)
+                .serializer(serializer)
+                .addFeature(manager)
+                .build();
+
+        Map<String, Object> flagAttrs = new HashMap<>();
+        flagAttrs.put("local_attr", "local_val");
+        FeatureFlag<Boolean> flag = manager.define("opt_flag", false, flagAttrs);
+
+        submitter.response = "{value=true}";
+        assertTrue(flag.optIn().get());
+
+        int optIndex = submitter.capturedPaths.indexOf("https://flags.faststats.dev/v1/opt-in");
+        assertTrue(optIndex >= 0);
+        String optJson = submitter.capturedJsons.get(optIndex);
+        assertTrue(optJson.contains("key=opt_flag"));
+        assertFalse(optJson.contains("flag=opt_flag"));
+        assertTrue(optJson.contains("global_attr=global_val"));
+        assertTrue(optJson.contains("local_attr=local_val"));
+    }
+
+    @Test
     public void testTTLAndCaching() throws Exception {
         MockPlatform platform = new MockPlatform();
         CapturingSubmitter submitter = new CapturingSubmitter();

@@ -27,15 +27,7 @@ public class ErrorTracker extends Feature {
     private final Map<Class<? extends Throwable>, Set<Pattern>> ignoredTypedPatterns = new ConcurrentHashMap<>();
     private final Set<Class<? extends Throwable>> ignoredTypes = new CopyOnWriteArraySet<>();
     private final Set<Pattern> ignoredPatterns = new CopyOnWriteArraySet<>();
-    private final List<Map.Entry<Pattern, String>> anonymizationEntries = new CopyOnWriteArrayList<Map.Entry<Pattern, String>>() {
-        {
-            add(new AbstractMap.SimpleEntry<>(ErrorHelper.ipv4Pattern(), "[IP hidden]"));
-            add(new AbstractMap.SimpleEntry<>(ErrorHelper.ipv6Pattern(), "[IP hidden]"));
-            add(new AbstractMap.SimpleEntry<>(ErrorHelper.userHomePathPattern(), "$1$2$3[username hidden]"));
-            add(new AbstractMap.SimpleEntry<>(ErrorHelper.discordWebhookPattern(), "$1[token hidden]"));
-            add(new AbstractMap.SimpleEntry<>(ErrorHelper.jdbcUrlPattern(), "$1[password hidden]$2"));
-        }
-    };
+    private final List<Map.Entry<Pattern, String>> anonymizationEntries = new CopyOnWriteArrayList<>();
 
     private volatile BiConsumer<ClassLoader, Throwable> errorEvent = null;
     private volatile UncaughtExceptionHandler originalHandler = null;
@@ -56,9 +48,6 @@ public class ErrorTracker extends Feature {
      */
     public ErrorTracker(ClassLoader loader) {
         this.loader = loader;
-        ErrorHelper.usernamePattern().ifPresent(pattern ->
-                anonymizationEntries.add(new AbstractMap.SimpleEntry<>(pattern, "[username hidden]"))
-        );
     }
 
     /**
@@ -324,21 +313,23 @@ public class ErrorTracker extends Feature {
         }
         originalHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            try {
+                if (classLoader == null || ErrorHelper.isSameLoader(classLoader, error)) {
+                    final BiConsumer<ClassLoader, Throwable> event = errorEvent;
+                    if (event != null) {
+                        event.accept(classLoader, error);
+                    }
+                    trackError(error, false);
+                }
+            } catch (final Throwable t) {
+                try {
+                    trackError(t, false);
+                } catch (final Throwable ignored) {
+                }
+            }
             final UncaughtExceptionHandler handler = originalHandler;
             if (handler != null) {
                 handler.uncaughtException(thread, error);
-            }
-            try {
-                if (classLoader != null && !ErrorHelper.isSameLoader(classLoader, error)) {
-                    return;
-                }
-                final BiConsumer<ClassLoader, Throwable> event = errorEvent;
-                if (event != null) {
-                    event.accept(classLoader, error);
-                }
-                trackError(error, false);
-            } catch (final Throwable t) {
-                trackError(t, false);
             }
         });
         attached = true;
@@ -402,7 +393,6 @@ public class ErrorTracker extends Feature {
                 return;
             }
             reportsSnapshot = new LinkedHashMap<>(reports);
-            reports.clear();
         }
 
         List<Map<String, Object>> errorsList = new ArrayList<>();
@@ -425,12 +415,16 @@ public class ErrorTracker extends Feature {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("buildId", buildId);
         payload.put("language", "java");
-        payload.put("project_name", getProperty("project-name", getProperty("project_name", "unknown")));
+        payload.put("project_name", getProperty("project-name", getProjectName()));
         payload.put("sdk_name", BuildInfo.getName());
         payload.put("sdk_version", BuildInfo.getVersion());
         payload.put("errors", errorsList);
         payload.put("context", getDefaultContext());
 
-        submit(serverPath, payload, true);
+        if (submit(serverPath, payload, true).isSuccessful()) {
+            synchronized (this) {
+                reports.keySet().removeAll(reportsSnapshot.keySet());
+            }
+        }
     }
 }

@@ -6,9 +6,14 @@ import java.util.function.Supplier;
 
 /**
  * An error report with tracking metadata.
+ * <p>
+ * The error is snapshotted when this report is created, so modifications of the
+ * original {@link Throwable} afterwards do not change the report or its identity.
+ * Reports are deduplicated by their error snapshot only; the metadata added later
+ * ({@link #handled(boolean)}, {@link #attributes(Map)}) is not part of the identity.
  */
 public final class TrackedError {
-    private final Throwable error;
+    private final ThrowableSnapshot error;
     private boolean handled = true;
     private Map<String, Object> attributes = new LinkedHashMap<>();
 
@@ -18,35 +23,29 @@ public final class TrackedError {
      * @param error the error
      */
     public TrackedError(Throwable error) {
-        this.error = error;
+        this.error = snapshot(error, null);
     }
 
-    private static boolean deepEquals(Throwable first, Throwable second, Set<Throwable> visited) {
-        if (first == second) return true;
-        if (first == null || second == null) return false;
-        if (first.getClass() != second.getClass()) return false;
-        if (!Objects.equals(first.getMessage(), second.getMessage())) return false;
-        if (!Arrays.equals(first.getStackTrace(), second.getStackTrace())) return false;
-        if (!visited.add(first)) return true;
-        return deepEquals(first.getCause(), second.getCause(), visited);
-    }
-
-    private static int hash(Throwable error, Set<Throwable> visited) {
-        if (error == null || !visited.add(error)) return 0;
-        return Objects.hash(
-                error.getClass(),
-                error.getMessage(),
-                Arrays.hashCode(error.getStackTrace()),
-                hash(error.getCause(), visited)
-        );
+    private static ThrowableSnapshot snapshot(Throwable error, Set<Throwable> visited) {
+        String message = error.getMessage();
+        StackTraceElement[] stackTrace = error.getStackTrace();
+        if (error.getCause() != null && visited == null) {
+            visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        }
+        if (visited != null && !visited.add(error)) {
+            return null;
+        }
+        ThrowableSnapshot cause = error.getCause() != null ? snapshot(error.getCause(), visited) : null;
+        StackTraceElement[] trace = stackTrace.length == 0 ? new Throwable().getStackTrace() : stackTrace;
+        return new ErrorSnapshot(error.getClass(), message, cause, trace);
     }
 
     /**
-     * Returns the tracked error.
+     * Returns the snapshot of the tracked error.
      *
-     * @return the tracked error
+     * @return the error snapshot
      */
-    public Throwable error() {
+    public ThrowableSnapshot error() {
         return error;
     }
 
@@ -119,16 +118,105 @@ public final class TrackedError {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         TrackedError that = (TrackedError) o;
-        return handled == that.handled
-                && Objects.equals(attributes, that.attributes)
-                && deepEquals(error, that.error, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return Objects.equals(error, that.error);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(attributes, handled, hash(error, Collections.newSetFromMap(new IdentityHashMap<>())));
+        return Objects.hashCode(error);
+    }
+
+    /**
+     * An immutable snapshot of a throwable.
+     */
+    public interface ThrowableSnapshot {
+        /**
+         * Gets the type of the snapshotted throwable.
+         *
+         * @return the throwable type
+         */
+        Class<?> getType();
+
+        /**
+         * Gets the message of the snapshotted throwable.
+         *
+         * @return the throwable message
+         */
+        String getMessage();
+
+        /**
+         * Gets the snapshot of the cause, if any.
+         *
+         * @return the cause snapshot, or null
+         */
+        ThrowableSnapshot getCause();
+
+        /**
+         * Gets a copy of the stack trace of the snapshotted throwable.
+         *
+         * @return the stack trace
+         */
+        StackTraceElement[] getStackTrace();
+    }
+
+    private static final class ErrorSnapshot implements ThrowableSnapshot {
+        private final Class<?> type;
+        private final String message;
+        private final ThrowableSnapshot cause;
+        private final StackTraceElement[] stackTrace;
+
+        private ErrorSnapshot(Class<?> type, String message, ThrowableSnapshot cause, StackTraceElement[] stackTrace) {
+            this.type = type;
+            this.message = message;
+            this.cause = cause;
+            this.stackTrace = stackTrace;
+        }
+
+        @Override
+        public Class<?> getType() {
+            return type;
+        }
+
+        @Override
+        public String getMessage() {
+            return message;
+        }
+
+        @Override
+        public ThrowableSnapshot getCause() {
+            return cause;
+        }
+
+        @Override
+        public StackTraceElement[] getStackTrace() {
+            return stackTrace.clone();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ErrorSnapshot that = (ErrorSnapshot) o;
+            return Objects.equals(type, that.type)
+                    && Objects.equals(message, that.message)
+                    && Objects.equals(cause, that.cause)
+                    && Arrays.equals(stackTrace, that.stackTrace);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, message, cause, Arrays.hashCode(stackTrace));
+        }
     }
 }

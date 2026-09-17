@@ -168,16 +168,7 @@ public final class FeatureFlagManager extends Feature {
             }
             CompletableFuture<T> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    Map<String, Object> requestBody = new LinkedHashMap<>();
-                    requestBody.put("key", flag.getId());
-
-                    Map<String, Object> mergedAttributes = new LinkedHashMap<>(this.attributes);
-                    if (flag.attributes() != null) {
-                        mergedAttributes.putAll(flag.attributes());
-                    }
-                    if (!mergedAttributes.isEmpty()) {
-                        requestBody.put("attributes", mergedAttributes);
-                    }
+                    Map<String, Object> requestBody = createRequestBody(flag);
 
                     String url = getFullUrl("/v1/check");
                     Submitter.Response response = submit(url, requestBody, false);
@@ -226,8 +217,7 @@ public final class FeatureFlagManager extends Feature {
     private <T> CompletableFuture<T> sendOptRequest(FeatureFlag<T> flag, String path) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                Map<String, Object> requestBody = new LinkedHashMap<>();
-                requestBody.put("flag", flag.getId());
+                Map<String, Object> requestBody = createRequestBody(flag);
 
                 String url = getFullUrl(path);
                 Submitter.Response response = submit(url, requestBody, false);
@@ -242,6 +232,27 @@ public final class FeatureFlagManager extends Feature {
                 throw new IllegalStateException("Failed to opt request: " + flag.getId(), e);
             }
         });
+    }
+
+    /**
+     * Creates the request body shared by flag checks and opt-in/opt-out requests.
+     *
+     * @param flag the flag to build the request for
+     * @param <T>  the flag value type
+     * @return the request body
+     */
+    private <T> Map<String, Object> createRequestBody(FeatureFlag<T> flag) {
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("key", flag.getId());
+
+        Map<String, Object> mergedAttributes = new LinkedHashMap<>(this.attributes);
+        if (flag.attributes() != null) {
+            mergedAttributes.putAll(flag.attributes());
+        }
+        if (!mergedAttributes.isEmpty()) {
+            requestBody.put("attributes", mergedAttributes);
+        }
+        return requestBody;
     }
 
     private String getFullUrl(String path) {

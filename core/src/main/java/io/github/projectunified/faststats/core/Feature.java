@@ -73,6 +73,15 @@ public abstract class Feature {
         return getMetrics().getDefaultContext();
     }
 
+    /**
+     * Gets the name of the project (plugin, mod, ...) reporting telemetry.
+     *
+     * @return the project name
+     */
+    protected final String getProjectName() {
+        return getMetrics().getProjectName();
+    }
+
 
     /**
      * Submits the given data map payload and returns the response.

@@ -12,6 +12,7 @@ public final class Metrics {
     private final TaskScheduler scheduler;
     private final List<Metric<?>> additionalMetrics;
     private final List<Feature> features;
+    private final List<Runnable> flushes;
 
     private Metrics(Builder builder) {
         this.platform = builder.platform;
@@ -20,6 +21,7 @@ public final class Metrics {
         this.scheduler = builder.scheduler;
         this.additionalMetrics = Collections.unmodifiableList(new ArrayList<>(builder.additionalMetrics));
         this.features = Collections.unmodifiableList(new ArrayList<>(builder.features));
+        this.flushes = Collections.unmodifiableList(new ArrayList<>(builder.flushes));
         Map<String, String> defaultProperties = new LinkedHashMap<>();
         for (Feature feature : this.features) {
             feature.setMetrics(this);
@@ -95,12 +97,12 @@ public final class Metrics {
         Config config = platform.getConfig();
         if (config.isFirstRun()) {
             String[] onboardingMessage = {
-                    "This plugin uses FastStats to collect anonymous usage statistics.",
+                    "This plugin uses FastStats to collect pseudonymous usage statistics and errors.",
                     "No personal or identifying information is ever collected.",
                     "To opt out, set 'enabled=false' in the metrics configuration file.",
                     "Learn more at: https://faststats.dev/info",
                     "",
-                    "Since this is your first start with FastStats, metrics submission will not start",
+                    "Since this is your first start with FastStats, submission will not start",
                     "until you restart the server to allow you to opt out if you prefer."
             };
 
@@ -141,9 +143,7 @@ public final class Metrics {
         if (config.isSubmitMetrics()) {
             scheduler.schedule(() -> {
                 try {
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("data", getDefaultContext());
-                    submit("/v1/collect", payload, false);
+                    submitMetricsPayload();
                 } catch (Throwable t) {
                     logError("Error during scheduled metrics submission", t);
                 }
@@ -162,11 +162,19 @@ public final class Metrics {
     }
 
     /**
-     * Shuts down the scheduler.
+     * Shuts down the scheduler and submits the last metrics payload.
      */
     public void shutdown() {
         if (scheduler != null) {
             scheduler.shutdown();
+        }
+        Config config = platform.getConfig();
+        if (config.isEnabled() && config.isSubmitMetrics()) {
+            try {
+                submitMetricsPayload();
+            } catch (Throwable t) {
+                logError("Error during metrics submission on shutdown", t);
+            }
         }
         for (Feature feature : features) {
             try {
@@ -175,6 +183,55 @@ public final class Metrics {
                 logError("Error shutting down feature " + feature.getClass().getSimpleName(), t);
             }
         }
+    }
+
+    /**
+     * Submits the metrics payload and runs the configured flush callbacks
+     * if the payload was accepted by the server.
+     *
+     * @throws Exception if submission fails
+     */
+    private void submitMetricsPayload() throws Exception {
+        Map<String, Object> payload = createMetricsPayload();
+        if (payload.isEmpty()) {
+            return;
+        }
+        Submitter.Response response = submit("/v1/collect", payload, true);
+        if (!response.isSuccessful()) {
+            return;
+        }
+        for (Runnable flush : flushes) {
+            try {
+                flush.run();
+            } catch (Throwable t) {
+                logError("Error running flush callback", t);
+            }
+        }
+    }
+
+    /**
+     * Creates the payload submitted to the metrics collection endpoint.
+     *
+     * @return the metrics payload, or an empty map if no metrics are collected
+     */
+    private Map<String, Object> createMetricsPayload() {
+        Map<String, Object> data = getDefaultContext();
+        if (data.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project_name", platform.getProjectName());
+        payload.put("data", data);
+        return payload;
+    }
+
+    /**
+     * Gets the name of the project reporting metrics.
+     *
+     * @return the project name
+     */
+    String getProjectName() {
+        return platform.getProjectName();
     }
 
     /**
@@ -189,6 +246,7 @@ public final class Metrics {
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("client", false);
         data.put("core_count", Runtime.getRuntime().availableProcessors());
         data.put("java_vendor", System.getProperty("java.vendor"));
         data.put("java_version", System.getProperty("java.version"));
@@ -214,9 +272,14 @@ public final class Metrics {
             for (Metric<?> metric : additionalMetrics) {
                 try {
                     Object val = metric.getValue();
-                    if (val != null) {
-                        data.put(metric.getName(), val);
+                    if (val == null) {
+                        continue;
                     }
+                    if (data.containsKey(metric.getName())) {
+                        platform.logWarning("Skipped duplicated metrics entry: " + metric.getName());
+                        continue;
+                    }
+                    data.put(metric.getName(), val);
                 } catch (Exception e) {
                     logError("Failed to collect metric " + metric.getName(), e);
                 }
@@ -242,11 +305,62 @@ public final class Metrics {
         logInfo("Submitting payload: " + json);
         try {
             Submitter.Response response = submitter.execute(path, json, compressed);
-            logInfo("Response received successfully.");
+            logResponse(path, response);
             return response;
         } catch (Exception e) {
             logError("Failed to submit/execute request", e);
             throw e;
+        }
+    }
+
+    /**
+     * Logs the outcome of a submission. Failures are always logged, successful
+     * submissions are only logged in debug mode.
+     *
+     * @param path     the target path or URL
+     * @param response the response to log
+     */
+    private void logResponse(String path, Submitter.Response response) {
+        if (response.getException().isPresent()) {
+            platform.logError("Failed to submit to " + path, response.getException().get());
+            return;
+        }
+
+        int statusCode = response.getStatusCode();
+        if (response.isSuccessful()) {
+            String body = readBody(response);
+            if (hasWarnings(body)) {
+                platform.logWarning("Submitted to " + path + " with warnings: " + body);
+            } else {
+                logInfo("Submitted to " + path + " successfully with status code " + statusCode);
+            }
+        } else if (statusCode >= 300 && statusCode < 400) {
+            platform.logWarning("Received redirect response from " + path + ": " + statusCode + " (" + readBody(response) + ")");
+        } else if (statusCode >= 400 && statusCode < 500) {
+            platform.logError("Submitted invalid request to " + path + ": " + statusCode + " (" + readBody(response) + ")", null);
+        } else if (statusCode >= 500 && statusCode < 600) {
+            platform.logError("Received server error response from " + path + ": " + statusCode + " (" + readBody(response) + ")", null);
+        } else {
+            platform.logWarning("Received unexpected response from " + path + ": " + statusCode + " (" + readBody(response) + ")");
+        }
+    }
+
+    private boolean hasWarnings(String body) {
+        if (body.isEmpty()) {
+            return false;
+        }
+        try {
+            return deserialize(body).containsKey("warnings");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String readBody(Submitter.Response response) {
+        try {
+            return response.readString();
+        } catch (Exception e) {
+            return "";
         }
     }
 
@@ -278,6 +392,7 @@ public final class Metrics {
     public static final class Builder {
         private final List<Metric<?>> additionalMetrics = new ArrayList<>();
         private final List<Feature> features = new ArrayList<>();
+        private final List<Runnable> flushes = new ArrayList<>();
         private Platform platform;
         private Serializer serializer;
         private Submitter submitter;
@@ -332,8 +447,18 @@ public final class Metrics {
          *
          * @param metric the metric to add
          * @return this builder instance
+         * @throws IllegalArgumentException if the metric name is invalid or already added
          */
         public Builder addMetric(Metric<?> metric) {
+            String name = metric.getName();
+            if (name == null || !name.matches(SimpleMetric.NAME_PATTERN)) {
+                throw new IllegalArgumentException("Invalid metric name '" + name + "', must match '" + SimpleMetric.NAME_PATTERN + "'");
+            }
+            for (Metric<?> existing : additionalMetrics) {
+                if (name.equals(existing.getName())) {
+                    throw new IllegalArgumentException("Metric already added: " + name);
+                }
+            }
             this.additionalMetrics.add(metric);
             return this;
         }
@@ -343,9 +468,29 @@ public final class Metrics {
          *
          * @param metrics the metrics to add
          * @return this builder instance
+         * @throws IllegalArgumentException if a metric name is invalid or already added
          */
         public Builder addMetrics(Collection<Metric<?>> metrics) {
-            this.additionalMetrics.addAll(metrics);
+            for (Metric<?> metric : metrics) {
+                addMetric(metric);
+            }
+            return this;
+        }
+
+        /**
+         * Adds a flush callback to this metrics instance.
+         * <p>
+         * The callback is invoked after the metrics payload has been accepted by
+         * the metrics server, which makes it suitable for resetting counters that
+         * accumulate between submissions.
+         *
+         * @param flush the flush callback
+         * @return this builder instance
+         */
+        public Builder onFlush(Runnable flush) {
+            if (flush != null) {
+                this.flushes.add(flush);
+            }
             return this;
         }
 

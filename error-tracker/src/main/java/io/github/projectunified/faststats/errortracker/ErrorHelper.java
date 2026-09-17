@@ -3,25 +3,51 @@ package io.github.projectunified.faststats.errortracker;
 import java.util.*;
 import java.util.regex.Pattern;
 
+/**
+ * Compiles tracked errors into submission payloads, including anonymization,
+ * truncation and stack trace collapsing.
+ */
 final class ErrorHelper {
-    private static final int MESSAGE_LENGTH = Math.min(1000, Integer.getInteger("faststats.message-length", 500));
-    private static final int STACK_TRACE_LENGTH = Math.min(500, Integer.getInteger("faststats.stack-trace-length", 300));
-    private static final int STACK_TRACE_LIMIT = Math.min(50, Integer.getInteger("faststats.stack-trace-limit", 15));
+    private static final int MAX_MESSAGE_LENGTH = limit("faststats.message-length", 1000, 4000);
+    private static final int MAX_FRAME_SIZE = limit("faststats.stack-trace-length", 300, 1200);
+    private static final int MAX_STACK_SIZE = limit("faststats.stack-trace-limit", 30, 100);
+
     private static final Set<String> allowedNames = Collections.unmodifiableSet(
-            new java.util.HashSet<>(Arrays.asList("minecraft", "server", "root", "ubuntu"))
+            new HashSet<>(Arrays.asList("minecraft", "server", "root", "ubuntu"))
     );
+    private static final List<Map.Entry<Pattern, String>> DEFAULT_ANONYMIZATION_ENTRIES = defaultAnonymizationEntries();
+
+    private static int limit(final String propertyName, final int defaultValue, final int maximum) {
+        return Math.max(1, Math.min(Integer.getInteger(propertyName, defaultValue), maximum));
+    }
+
+    public static List<Map.Entry<Pattern, String>> defaultAnonymizationEntries() {
+        List<Map.Entry<Pattern, String>> entries = new ArrayList<>();
+        entries.add(new AbstractMap.SimpleEntry<>(ipv4Pattern(), "[IP hidden]"));
+        entries.add(new AbstractMap.SimpleEntry<>(ipv6Pattern(), "[IP hidden]"));
+        entries.add(new AbstractMap.SimpleEntry<>(userHomePathPattern(), "$1$2$3[username hidden]"));
+        entries.add(new AbstractMap.SimpleEntry<>(discordWebhookPattern(), "$1[token hidden]"));
+        entries.add(new AbstractMap.SimpleEntry<>(jdbcUrlPattern(), "$1[password hidden]$2"));
+        usernamePattern().ifPresent(pattern ->
+                entries.add(new AbstractMap.SimpleEntry<>(pattern, "[username hidden]"))
+        );
+        return Collections.unmodifiableList(entries);
+    }
 
     public static Map<String, Object> compile(final TrackedError trackedError, final List<String> suppress,
                                               final List<Map.Entry<Pattern, String>> customPatterns,
                                               final Map<String, Object> defaultAttributes) {
-        final Throwable error = trackedError.error();
+        final TrackedError.ThrowableSnapshot error = trackedError.error();
+        final List<Map.Entry<Pattern, String>> patterns = new ArrayList<>(customPatterns);
+        patterns.addAll(DEFAULT_ANONYMIZATION_ENTRIES);
+
         final Map<String, Object> report = new LinkedHashMap<>();
-        final String message = getAnonymizedMessage(error, customPatterns);
 
         final List<String> stacktrace = new ArrayList<>();
-        final String header = message != null
-                ? error.getClass().getName() + ": " + message
-                : error.getClass().getName();
+        final String rootMessage = getAnonymizedMessage(error.getMessage(), patterns);
+        final String header = rootMessage != null
+                ? error.getType().getName() + ": " + rootMessage
+                : error.getType().getName();
         stacktrace.add(header);
 
         final StackTraceElement[] elements = error.getStackTrace();
@@ -30,12 +56,13 @@ final class ErrorHelper {
         if (suppress != null) {
             list.removeAll(suppress);
         }
-        final int traces = Math.min(list.size(), STACK_TRACE_LIMIT);
+        final int traces = Math.min(list.size(), MAX_STACK_SIZE);
 
         populateTraces(traces, list, elements, stacktrace);
-        appendCauseChain(error.getCause(), stack, suppress, stacktrace, customPatterns);
+        appendCauseChain(error.getCause(), stack, suppress, stacktrace, patterns);
 
-        report.put("error", error.getClass().getName());
+        report.put("error", error.getType().getName());
+        final String message = getAnonymizedMessage(findFirstMessage(error), patterns);
         if (message != null) {
             report.put("message", message);
         }
@@ -55,26 +82,36 @@ final class ErrorHelper {
         return report;
     }
 
-    private static void appendCauseChain(Throwable cause, final List<String> parentStack,
+    private static String findFirstMessage(final TrackedError.ThrowableSnapshot error) {
+        TrackedError.ThrowableSnapshot current = error;
+        while (current != null) {
+            if (current.getMessage() != null) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private static void appendCauseChain(TrackedError.ThrowableSnapshot cause, final List<String> parentStack,
                                          final List<String> suppress, final List<String> stacktrace,
                                          final List<Map.Entry<Pattern, String>> customPatterns) {
         final List<String> toSuppress = new ArrayList<>(parentStack);
         if (suppress != null) {
             toSuppress.addAll(suppress);
         }
-        final Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        while (cause != null && visited.add(cause)) {
-            final String causeMessage = getAnonymizedMessage(cause, customPatterns);
+        while (cause != null) {
+            final String causeMessage = getAnonymizedMessage(cause.getMessage(), customPatterns);
             final String header = causeMessage != null
-                    ? "Caused by: " + cause.getClass().getName() + ": " + causeMessage
-                    : "Caused by: " + cause.getClass().getName();
+                    ? "Caused by: " + cause.getType().getName() + ": " + causeMessage
+                    : "Caused by: " + cause.getType().getName();
             stacktrace.add(header);
 
             final StackTraceElement[] causeElements = cause.getStackTrace();
             final List<String> causeStack = collapseStackTrace(causeElements);
             final List<String> causeList = new ArrayList<>(causeStack);
             causeList.removeAll(toSuppress);
-            final int causeTraces = Math.min(causeList.size(), STACK_TRACE_LIMIT);
+            final int causeTraces = Math.min(causeList.size(), MAX_STACK_SIZE);
             populateTraces(causeTraces, causeList, causeElements, stacktrace);
 
             cause = cause.getCause();
@@ -85,10 +122,10 @@ final class ErrorHelper {
                                        final List<String> stacktrace) {
         for (int i = 0; i < traces; i++) {
             final String string = list.get(i);
-            if (string.length() <= STACK_TRACE_LENGTH) {
+            if (MAX_FRAME_SIZE < 0 || string.length() <= MAX_FRAME_SIZE) {
                 stacktrace.add("  at " + string);
             } else {
-                stacktrace.add("  at " + string.substring(0, STACK_TRACE_LENGTH) + "...");
+                stacktrace.add("  at " + string.substring(0, MAX_FRAME_SIZE) + "...");
             }
         }
         if (traces > 0 && traces < list.size()) {
@@ -226,18 +263,22 @@ final class ErrorHelper {
         return loader == current;
     }
 
-    private static String getAnonymizedMessage(final Throwable error, final List<Map.Entry<Pattern, String>> customPatterns) {
-        final String message = error.getMessage();
+    private static String getAnonymizedMessage(final String message, final List<Map.Entry<Pattern, String>> patterns) {
         if (message == null) {
             return null;
         }
-        String truncated = message.length() > MESSAGE_LENGTH
-                ? message.substring(0, MESSAGE_LENGTH) + "..."
+        final String truncated = message.length() > MAX_MESSAGE_LENGTH
+                ? message.substring(0, MAX_MESSAGE_LENGTH) + "..."
                 : message;
-        for (final Map.Entry<Pattern, String> entry : customPatterns) {
-            truncated = entry.getKey().matcher(truncated).replaceAll(entry.getValue());
+        return anonymize(truncated, patterns);
+    }
+
+    private static String anonymize(final String message, final List<Map.Entry<Pattern, String>> patterns) {
+        String anonymized = message;
+        for (final Map.Entry<Pattern, String> entry : patterns) {
+            anonymized = entry.getKey().matcher(anonymized).replaceAll(entry.getValue());
         }
-        return truncated;
+        return anonymized;
     }
 
     public static Pattern discordWebhookPattern() {

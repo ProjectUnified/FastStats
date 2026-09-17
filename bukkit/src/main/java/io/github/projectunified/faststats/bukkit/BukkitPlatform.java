@@ -85,6 +85,7 @@ public class BukkitPlatform implements Platform {
     private final Plugin plugin;
     private final Config config;
     private final List<Metric<?>> defaultMetrics;
+    private final String serverVersion;
 
     /**
      * Constructs a new {@link BukkitPlatform} for the given plugin.
@@ -93,6 +94,7 @@ public class BukkitPlatform implements Platform {
      */
     public BukkitPlatform(Plugin plugin) {
         this.plugin = plugin;
+        this.serverVersion = plugin.getServer().getVersion().split("\\(MC: |\\)", 2)[0].trim();
 
         File pluginsFolder = null;
         try {
@@ -116,8 +118,8 @@ public class BukkitPlatform implements Platform {
     private void setupDefaultMetrics() {
         final Server server = plugin.getServer();
 
-        // Minecraft Version
-        defaultMetrics.add(Metric.string("minecraft_version", () -> {
+        // Game Version
+        defaultMetrics.add(Metric.string("game_version", () -> {
             try {
                 if (GET_MINECRAFT_VERSION != null) {
                     return (String) GET_MINECRAFT_VERSION.invoke(server);
@@ -127,27 +129,39 @@ public class BukkitPlatform implements Platform {
 
             try {
                 return server.getBukkitVersion().split("-", 2)[0];
-            } catch (Exception ex) {
+            } catch (Throwable ignored) {
+            }
+
+            try {
                 return server.getVersion().split("\\(MC: |\\)", 3)[1];
+            } catch (Throwable ignored) {
+                return serverVersion;
             }
         }));
 
         // Online Mode
         defaultMetrics.add(Metric.bool("online_mode", () -> {
-            boolean proxyOnlineMode = false;
             if (GET_SERVER_CONFIG != null) {
                 try {
                     Object serverConfig = GET_SERVER_CONFIG.invoke(server);
                     Method isProxyOnlineMode = serverConfig.getClass().getMethod("isProxyOnlineMode");
-                    proxyOnlineMode = (Boolean) isProxyOnlineMode.invoke(serverConfig);
+                    return (Boolean) isProxyOnlineMode.invoke(serverConfig);
                 } catch (Throwable ignored) {
                 }
-            } else {
-                proxyOnlineMode = isProxyOnlineMode();
             }
 
-            return proxyOnlineMode || server.getOnlineMode();
+            if (SPIGOT != null && (GET_PAPER_CONFIG != null || GET_SPIGOT_CONFIG != null)) {
+                try {
+                    return isProxyOnlineMode();
+                } catch (Throwable ignored) {
+                }
+            }
+
+            return server.getOnlineMode();
         }));
+
+        // Platform Version
+        defaultMetrics.add(Metric.string("platform_version", () -> serverVersion));
 
         // Player Count
         defaultMetrics.add(Metric.number("player_count", () -> {
@@ -172,56 +186,49 @@ public class BukkitPlatform implements Platform {
         defaultMetrics.add(Metric.string("server_type", server::getName));
     }
 
-    private boolean isProxyOnlineMode() {
-        if (SPIGOT == null) {
-            return false;
-        }
-
+    /**
+     * Checks the proxy online mode configured in the Paper/Spigot configuration.
+     * <p>
+     * Fails with a reflective exception if the required server API is unavailable,
+     * so callers can fall back to {@link Server#getOnlineMode()}.
+     *
+     * @return true if the proxy is configured to run in online mode
+     * @throws ReflectiveOperationException if the server API is unavailable
+     */
+    private boolean isProxyOnlineMode() throws ReflectiveOperationException {
         Server server = plugin.getServer();
-        Object spigot;
-        try {
-            spigot = SPIGOT.invoke(server);
-        } catch (Throwable e) {
-            return false;
-        }
+        Object spigot = SPIGOT.invoke(server);
 
         ConfigurationSection proxies = null;
-        try {
-            if (GET_PAPER_CONFIG != null) {
-                Object paperConfig = GET_PAPER_CONFIG.invoke(spigot);
-                if (paperConfig instanceof ConfigurationSection) {
-                    ConfigurationSection section = (ConfigurationSection) paperConfig;
-                    proxies = section.getConfigurationSection("proxies");
-                    if (proxies != null) {
-                        boolean velocityEnabled = proxies.getBoolean("velocity.enabled");
-                        boolean velocityOnline = proxies.getBoolean("velocity.online-mode");
-                        if (velocityEnabled && velocityOnline) {
-                            return true;
-                        }
-                    }
+        if (GET_PAPER_CONFIG != null) {
+            Object paperConfig = GET_PAPER_CONFIG.invoke(spigot);
+            if (paperConfig instanceof ConfigurationSection) {
+                ConfigurationSection section = (ConfigurationSection) paperConfig;
+                proxies = section.getConfigurationSection("proxies");
+                if (proxies != null
+                        && proxies.getBoolean("velocity.enabled")
+                        && proxies.getBoolean("velocity.online-mode")) {
+                    return true;
                 }
             }
-        } catch (Throwable ignored) {
         }
 
-        try {
-            if (GET_SPIGOT_CONFIG != null) {
-                Object spigotConfig = GET_SPIGOT_CONFIG.invoke(spigot);
-                if (spigotConfig instanceof ConfigurationSection) {
-                    ConfigurationSection section = (ConfigurationSection) spigotConfig;
-                    ConfigurationSection settings = section.getConfigurationSection("settings");
-                    if (settings != null) {
-                        boolean bungee = settings.getBoolean("bungeecord");
-                        if (bungee && proxies != null) {
-                            return proxies.getBoolean("bungee-cord.online-mode");
-                        }
-                    }
+        if (GET_SPIGOT_CONFIG != null) {
+            Object spigotConfig = GET_SPIGOT_CONFIG.invoke(spigot);
+            if (spigotConfig instanceof ConfigurationSection) {
+                ConfigurationSection settings = ((ConfigurationSection) spigotConfig).getConfigurationSection("settings");
+                if (settings != null && settings.getBoolean("bungeecord") && proxies != null) {
+                    return proxies.getBoolean("bungee-cord.online-mode");
                 }
             }
-        } catch (Throwable ignored) {
         }
 
         return false;
+    }
+
+    @Override
+    public String getProjectName() {
+        return plugin.getName();
     }
 
     @Override

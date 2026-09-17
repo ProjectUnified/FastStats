@@ -11,6 +11,11 @@ class MockPlatform implements Platform {
     private final MockConfig config = new MockConfig();
 
     @Override
+    public String getProjectName() {
+        return "Mock Project";
+    }
+
+    @Override
     public Config getConfig() {
         return config;
     }

@@ -1,26 +1,45 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Keeps child module versions in sync with the root project version.
+# Maven modules are updated from the reactor; the standalone Fabric Gradle
+# project is updated from the same version in stonecutter.properties.toml.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+VERSION="$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' pom.xml | head -n 1)"
+if [ -z "$VERSION" ]; then
+    echo "ERROR: could not read the project version from pom.xml" >&2
+    exit 1
+fi
 
 MODULE_DIRS=()
 
 # Function to recursively find valid pom.xml files
 find_modules() {
-  local dir="$1"
-  POM_FILE="$dir/pom.xml"
-  if [[ -f "$POM_FILE" ]] && grep -q '<packaging>pom</packaging>' "$POM_FILE"; then
-    MODULE_DIRS+=("$dir")
-    for subdir in "$dir"/*/; do
-      [[ -d "$subdir" ]] || continue
-      find_modules "$subdir"  # Recursively check for sub-modules
-    done
-  fi
+    local dir="$1"
+    local pom_file="$dir/pom.xml"
+    if [[ -f "$pom_file" ]] && grep -q '<packaging>pom</packaging>' "$pom_file"; then
+        MODULE_DIRS+=("$dir")
+        for subdir in "$dir"/*/; do
+            [[ -d "$subdir" ]] || continue
+            find_modules "$subdir"
+        done
+    fi
 }
 
-# Start searching from current directory
-find_modules "$(pwd)"
+find_modules "$ROOT"
 
-# Run Maven command for each valid module directory
 for dir in "${MODULE_DIRS[@]}"; do
-  echo "Updating versions for module in directory: $dir"
-  cd "$dir" || exit
-  mvn -N versions:update-child-modules -DgenerateBackupPoms=false
+    echo "Updating versions for module in directory: $dir"
+    (cd "$dir" && mvn -B -N versions:update-child-modules -DgenerateBackupPoms=false)
 done
+
+FABRIC_PROPS="$ROOT/mod-platforms/fabric/stonecutter.properties.toml"
+if [ -f "$FABRIC_PROPS" ]; then
+    echo "Updating version for the Fabric module: $FABRIC_PROPS"
+    sed -i -E "s/^mod\.version *= *\".*\"/mod.version = \"$VERSION\"/" "$FABRIC_PROPS"
+    sed -i -E "s/^deps\.faststats *= *\".*\"/deps.faststats = \"$VERSION\"/" "$FABRIC_PROPS"
+fi
+
+echo "Version: $VERSION"

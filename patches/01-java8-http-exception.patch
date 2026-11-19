@@ -1,0 +1,33 @@
+--- a/core/src/main/java/dev/faststats/SubmissionService.java
++++ b/core/src/main/java/dev/faststats/SubmissionService.java
+@@ -7,10 +7,10 @@
+ import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
+ import java.net.ConnectException;
++import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import java.net.URISyntaxException;
+ import java.net.http.HttpClient;
+-import java.net.http.HttpConnectTimeoutException;
+ import java.net.http.HttpRequest;
+ import java.net.http.HttpResponse;
+ import java.time.Duration;
+@@ -67,10 +67,16 @@
+                 return true;
+             }
+             logUnsuccessfulResponse(response);
+-        } catch (final HttpConnectTimeoutException t) {
+-            logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
+         } catch (final ConnectException t) {
+             logger.error("Failed to connect to %s server: %s", null, serverType(), url);
++        } catch (final IOException t) {
++            // The Java 8 API stub reports connect timeouts as IOException/SocketTimeoutException;
++            // the JDK client uses HttpConnectTimeoutException, which cannot be named on Java 8.
++            if (t instanceof SocketTimeoutException || t.getClass().getSimpleName().contains("Timeout")) {
++                logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
++            } else {
++                logger.error("Failed to submit %s", t, submissionName);
++            }
+         } catch (final Throwable t) {
+             logger.error("Failed to submit %s", t, submissionName);
+         }

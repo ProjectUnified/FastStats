@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.github.projectunified</groupId>
+        <artifactId>faststats</artifactId>
+        <version>0.33.0</version>
+    </parent>
+
+    <artifactId>faststats-config</artifactId>
+    <name>FastStats Config</name>
+    <description>File-backed configuration for the FastStats SDK.</description>
+
+    <properties>
+        <!-- Published as a Java 8 jar; sources stay upstream. -->
+        <faststats.downgrade.skip>false</faststats.downgrade.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.projectunified</groupId>
+            <artifactId>faststats-core</artifactId>
+        </dependency>
+    </dependencies>
+</project>

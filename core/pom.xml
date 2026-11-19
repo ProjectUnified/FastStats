@@ -6,11 +6,17 @@
     <parent>
         <groupId>io.github.projectunified</groupId>
         <artifactId>faststats</artifactId>
-        <version>0.6.0</version>
+        <version>0.33.0</version>
     </parent>
 
     <artifactId>faststats-core</artifactId>
     <name>FastStats Core</name>
+    <description>Core context, configuration, metrics and service APIs for FastStats.</description>
+
+    <properties>
+        <!-- Published as a Java 8 jar; sources stay upstream. -->
+        <faststats.downgrade.skip>false</faststats.downgrade.skip>
+    </properties>
 
     <build>
         <resources>
@@ -19,32 +25,12 @@
                 <filtering>true</filtering>
             </resource>
         </resources>
-        <plugins>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>templating-maven-plugin</artifactId>
-                <version>3.1.1</version>
-                <executions>
-                    <execution>
-                        <id>filter-src</id>
-                        <goals>
-                            <goal>filter-sources</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.5.1</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>test-jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
     </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+        </dependency>
+    </dependencies>
 </project>

@@ -6,17 +6,17 @@
 
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats</artifactId>
-    <version>0.6.0</version>
+    <version>0.33.0</version>
     <packaging>pom</packaging>
 
     <name>FastStats</name>
-    <description>A client implementation of FastStats</description>
-    <url>https://github.com/ProjectUnified/${project.name}</url>
+    <description>A patch-based fork of the FastStats SDK with a Maven build and Java 8 artifacts</description>
+    <url>https://github.com/ProjectUnified/FastStats</url>
 
     <licenses>
         <license>
             <name>MIT License</name>
-            <url>https://github.com/ProjectUnified/${project.name}/blob/master/LICENSE</url>
+            <url>https://github.com/ProjectUnified/FastStats/blob/master/LICENSE</url>
         </license>
     </licenses>
 
@@ -26,55 +26,118 @@
             <email>huynhqtienvtag@gmail.com</email>
             <url>https://github.com/HSGamer</url>
         </developer>
+        <developer>
+            <id>faststats</id>
+            <name>FastStats</name>
+            <url>https://github.com/faststats-dev/faststats-java</url>
+        </developer>
     </developers>
 
     <modules>
         <module>core</module>
-        <module>gson</module>
-        <module>bukkit</module>
-        <module>net</module>
-        <module>httpclient</module>
+        <module>config</module>
         <module>error-tracker</module>
         <module>feature-flag</module>
-        <module>paper</module>
+        <module>bukkit</module>
         <module>bungeecord</module>
         <module>hytale</module>
         <module>minestom</module>
         <module>nukkit</module>
         <module>sponge</module>
         <module>velocity</module>
-        <module>bom</module>
-        <module>bukkit-test-plugin</module>
     </modules>
 
     <issueManagement>
         <system>github</system>
-        <url>https://github.com/ProjectUnified/${project.name}/issues</url>
+        <url>https://github.com/ProjectUnified/FastStats/issues</url>
     </issueManagement>
 
     <scm>
-        <connection>scm:git:https://github.com/ProjectUnified/${project.name}.git</connection>
-        <developerConnection>scm:git:git@github.com:ProjectUnified/${project.name}.git</developerConnection>
-        <url>https://github.com/ProjectUnified/${project.name}</url>
+        <connection>scm:git:https://github.com/ProjectUnified/FastStats.git</connection>
+        <developerConnection>scm:git:git@github.com:ProjectUnified/FastStats.git</developerConnection>
+        <url>https://github.com/ProjectUnified/FastStats</url>
     </scm>
 
     <properties>
-        <java.version>1.8</java.version>
+        <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <build-id>unknown</build-id>
+
+        <gson.version>2.15.0</gson.version>
+        <junit.version>6.1.3</junit.version>
+        <jetbrains.annotations.version>26.1.0</jetbrains.annotations.version>
+        <jspecify.version>1.0.0</jspecify.version>
+
+        <!-- Set to false by modules whose jar is downgraded to Java 8. -->
+        <faststats.downgrade.skip>true</faststats.downgrade.skip>
+        <jvmdowngrader.version>2.0.1</jvmdowngrader.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.projectunified</groupId>
+                <artifactId>faststats-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.projectunified</groupId>
+                <artifactId>faststats-config</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.projectunified</groupId>
+                <artifactId>faststats-error-tracker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.projectunified</groupId>
+                <artifactId>faststats-feature-flag</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.code.gson</groupId>
+                <artifactId>gson</artifactId>
+                <version>${gson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains</groupId>
+                <artifactId>annotations</artifactId>
+                <version>${jetbrains.annotations.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <artifactId>jspecify</artifactId>
+                <version>${jspecify.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <version>6.1.3</version>
-            <scope>test</scope>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <version>6.1.3</version>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -82,13 +145,17 @@
     <build>
         <plugins>
             <plugin>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                </configuration>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.16.0</version>
+                <configuration>
+                    <release>${java.version}</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.5</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -96,10 +163,10 @@
                 <version>3.4.0</version>
                 <executions>
                     <execution>
+                        <id>attach-sources</id>
                         <goals>
                             <goal>jar</goal>
                         </goals>
-                        <id>attach-sources</id>
                     </execution>
                 </executions>
             </plugin>
@@ -109,15 +176,157 @@
                 <version>3.12.0</version>
                 <executions>
                     <execution>
+                        <id>attach-javadocs</id>
                         <goals>
                             <goal>jar</goal>
                         </goals>
-                        <id>attach-javadocs</id>
                     </execution>
                 </executions>
                 <configuration>
                     <outputDirectory>${project.build.directory}/reports</outputDirectory>
+                    <doclint>none</doclint>
+                    <tags>
+                        <tag>
+                            <name>apiNote</name>
+                            <placement>a</placement>
+                            <head>API Note:</head>
+                        </tag>
+                        <tag>
+                            <name>implSpec</name>
+                            <placement>a</placement>
+                            <head>Implementation Requirements:</head>
+                        </tag>
+                        <tag>
+                            <name>implNote</name>
+                            <placement>a</placement>
+                            <head>Implementation Note:</head>
+                        </tag>
+                    </tags>
                 </configuration>
+            </plugin>
+
+            <!-- Java 8 downgrade: fetch the standalone downgrader and its classpath. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>fetch-jvmdowngrader</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${faststats.downgrade.skip}</skip>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>xyz.wagyourtail.jvmdowngrader</groupId>
+                                    <artifactId>jvmdowngrader</artifactId>
+                                    <version>${jvmdowngrader.version}</version>
+                                    <classifier>all</classifier>
+                                    <outputDirectory>${project.build.directory}</outputDirectory>
+                                    <destFileName>jvmdowngrader.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jvmdowngrader-classpath</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${faststats.downgrade.skip}</skip>
+                            <includeScope>compile</includeScope>
+                            <outputProperty>faststats.downgrade.classpath</outputProperty>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>jvmdowngrade</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${faststats.downgrade.skip}</skip>
+                            <executable>${java.home}/bin/java</executable>
+                            <workingDirectory>${project.build.directory}</workingDirectory>
+                            <longModulepath>false</longModulepath>
+                            <arguments>
+                                <argument>-jar</argument>
+                                <argument>${project.build.directory}/jvmdowngrader.jar</argument>
+                                <argument>--classVersion</argument>
+                                <argument>52</argument>
+                                <argument>downgrade</argument>
+                                <argument>--target</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}-downgraded.jar</argument>
+                                <argument>--classpath</argument>
+                                <argument>${faststats.downgrade.classpath}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jvmshade</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${faststats.downgrade.skip}</skip>
+                            <executable>${java.home}/bin/java</executable>
+                            <workingDirectory>${project.build.directory}</workingDirectory>
+                            <longModulepath>false</longModulepath>
+                            <arguments>
+                                <argument>-jar</argument>
+                                <argument>${project.build.directory}/jvmdowngrader.jar</argument>
+                                <argument>--classVersion</argument>
+                                <argument>52</argument>
+                                <argument>shade</argument>
+                                <argument>--prefix</argument>
+                                <argument>jvmdg</argument>
+                                <argument>--target</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}-downgraded.jar</argument>
+                                <argument>${project.build.directory}/${project.build.finalName}-shaded.jar</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>replace-jar-with-downgraded</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${faststats.downgrade.skip}</skip>
+                            <target>
+                                <move file="${project.build.directory}/${project.build.finalName}.jar"
+                                      tofile="${project.build.directory}/${project.build.finalName}-pre-downgrade.jar"/>
+                                <move file="${project.build.directory}/${project.build.finalName}-shaded.jar"
+                                      tofile="${project.build.directory}/${project.build.finalName}.jar"/>
+                                <delete file="${project.build.directory}/${project.build.finalName}-downgraded.jar"/>
+                                <delete file="${project.build.directory}/${project.build.finalName}-pre-downgrade.jar"/>
+                                <delete file="${project.build.directory}/jvmdowngrader.jar"/>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

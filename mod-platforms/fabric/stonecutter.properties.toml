@@ -1,0 +1,8 @@
+mod.id = "faststats-fabric"
+mod.group = "io.github.projectunified"
+mod.version = "0.33.0"
+
+deps.fabric_loader = "0.19.2"
+loomx.loom_version = "1.16-SNAPSHOT"
+
+deps.faststats = "0.33.0"

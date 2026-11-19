@@ -33,6 +33,9 @@ jobs:
         with:
           myToken: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install quilt
+        run: sudo apt-get update && sudo apt-get install -y quilt
+
       - name: Set up JDK 25
         uses: actions/setup-java@v6
         with:
@@ -45,6 +48,9 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_SECRET_KEY }}
           gpg-passphrase: GPG_PASSPHRASE
 
+      - name: Generate sources from pinned upstream
+        run: bash scripts/sync-upstream.sh
+
       - name: Build with Maven
         run: mvn clean install
 
@@ -54,6 +60,15 @@ jobs:
           MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Build Fabric mod platform
+        run: cd mod-platforms/fabric && ./gradlew build --no-daemon
+      - name: Publish Fabric to Central
+        run: cd mod-platforms/fabric && ./gradlew publishToMavenCentral --no-daemon
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_SECRET_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
       - name: Generate Javadocs
         run: mvn javadoc:aggregate-no-fork
       - name: Deploy Javadocs
@@ -61,11 +76,12 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/reports/apidocs
-
       - name: "Release"
         uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.changelog.outputs.changelog || steps.prev_tag.outputs.changelog }}
           draft: false
           prerelease: false
-          files: "**/target/*.jar"
+          files: |
+            **/target/*.jar
+            mod-platforms/fabric/versions/*/build/libs/*.jar

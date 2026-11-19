@@ -2,23 +2,20 @@
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>io.github.projectunified</groupId>
         <artifactId>faststats</artifactId>
-        <version>0.6.0</version>
+        <version>0.33.0</version>
     </parent>
-    <modelVersion>4.0.0</modelVersion>
 
     <artifactId>faststats-sponge</artifactId>
     <name>FastStats Sponge</name>
-
-    <properties>
-        <java.version>17</java.version>
-    </properties>
+    <description>FastStats integration for Sponge plugins.</description>
 
     <repositories>
         <repository>
-            <id>spongepowered-repo</id>
+            <id>spongepowered</id>
             <url>https://repo.spongepowered.org/repository/maven-public/</url>
         </repository>
     </repositories>
@@ -27,7 +24,10 @@
         <dependency>
             <groupId>io.github.projectunified</groupId>
             <artifactId>faststats-core</artifactId>
-            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.projectunified</groupId>
+            <artifactId>faststats-config</artifactId>
         </dependency>
         <dependency>
             <groupId>org.spongepowered</groupId>

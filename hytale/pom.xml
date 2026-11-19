@@ -2,15 +2,16 @@
 <project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>io.github.projectunified</groupId>
         <artifactId>faststats</artifactId>
-        <version>0.6.0</version>
+        <version>0.33.0</version>
     </parent>
-    <modelVersion>4.0.0</modelVersion>
 
     <artifactId>faststats-hytale</artifactId>
     <name>FastStats Hytale</name>
+    <description>FastStats integration for Hytale server plugins.</description>
 
     <properties>
         <java.version>25</java.version>
@@ -27,12 +28,15 @@
         <dependency>
             <groupId>io.github.projectunified</groupId>
             <artifactId>faststats-core</artifactId>
-            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.projectunified</groupId>
+            <artifactId>faststats-config</artifactId>
         </dependency>
         <dependency>
             <groupId>com.hypixel.hytale</groupId>
             <artifactId>Server</artifactId>
-            <version>0.6.8</version>
+            <version>0.7.7</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

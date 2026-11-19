@@ -1,0 +1,3648 @@
+--- a/bukkit/src/main/java/dev/faststats/bukkit/FastStatsBukkit.java
++++ b/bukkit/src/main/java/dev/faststats/bukkit/FastStatsBukkit.java
+@@ -21,7 +21,7 @@
+  * <pre>{@code
+  * private final FastStatsContext context = FastStatsBukkit.builder(this)
+  *         .metrics(Metrics.Factory::create)
+- *         .errorTrackerService(ErrorTracker.contextAware())
++ *         .service(ErrorTrackerService.create(ErrorTracker.contextAware()))
+  *         .build();
+  *
+  * @Override
+@@ -160,7 +160,7 @@
+                 return plugin.getServer().getOnlinePlayers().size();
+             } catch (final Throwable t) {
+                 context.getLoggerFactory().getLogger(FastStatsBukkit.class).error("Failed to get player count", t);
+-                context.errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++                context.trackError(t);
+                 return 0;
+             }
+         }
+--- a/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
++++ b/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
+@@ -14,8 +14,6 @@
+         if (!(event.getException() instanceof final ServerPluginException exception)) return;
+         if (!exception.getResponsiblePlugin().equals(plugin)) return;
+         final var report = exception.getCause() != null ? exception.getCause() : exception;
+-        context.errorTrackerService().ifPresent(service -> {
+-            service.globalErrorTracker().trackError(report).handled(false);
+-        });
++        context.trackError(report);
+     }
+ }
+--- a/core/src/main/java/dev/faststats/ErrorHelper.java
++++ /dev/null
+@@ -1,303 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonArray;
+-import com.google.gson.JsonObject;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.util.ArrayList;
+-import java.util.Arrays;
+-import java.util.Collections;
+-import java.util.IdentityHashMap;
+-import java.util.List;
+-import java.util.Locale;
+-import java.util.Map;
+-import java.util.Optional;
+-import java.util.Set;
+-import java.util.regex.Pattern;
+-
+-final class ErrorHelper {
+-    public static final int MAX_MESSAGE_LENGTH = 1000;
+-    public static final int MAX_FRAME_SIZE = 300;
+-    public static final int MAX_STACK_SIZE = 30;
+-
+-    private static final Set<String> allowedNames = Set.of("minecraft", "server", "root", "ubuntu");
+-    private static final List<Map.Entry<Pattern, String>> defaultAnonymizationEntries = defaultAnonymizationEntries();
+-
+-    public static JsonObject compile(final TrackedError error, @Nullable final List<String> suppress,
+-                                     final List<Map.Entry<Pattern, String>> customPatterns,
+-                                     @Nullable final Attributes attributes) {
+-        final var patterns = new ArrayList<>(customPatterns);
+-        patterns.addAll(defaultAnonymizationEntries);
+-        return compileAll(error, suppress, patterns, attributes);
+-    }
+-
+-    private static JsonObject compileAll(final TrackedError trackedError, @Nullable final List<String> suppress,
+-                                         final List<Map.Entry<Pattern, String>> customPatterns,
+-                                         @Nullable final Attributes defaultAttributes) {
+-        final var error = trackedError.error();
+-        final var report = new JsonObject();
+-        final var message = anonymize(error.message(), customPatterns);
+-
+-        final var stacktrace = new JsonArray();
+-        final var header = message != null
+-                ? error.type().getName() + ": " + message
+-                : error.type().getName();
+-        stacktrace.add(header);
+-
+-        final var elements = error.stackTraces();
+-        final var stack = collapseStackTrace(elements);
+-        final var list = new ArrayList<>(stack);
+-        if (suppress != null) list.removeAll(suppress);
+-        final var traces = Math.min(list.size(), MAX_STACK_SIZE);
+-
+-        populateTraces(traces, list, elements, stacktrace);
+-        appendCauseChain(error.cause(), stack, suppress, stacktrace, customPatterns);
+-
+-        report.addProperty("error", error.type().getName());
+-        final var first = anonymize(findFirstMessage(error), customPatterns);
+-        if (first != null) report.addProperty("message", first);
+-
+-        report.add("stack", stacktrace);
+-        report.addProperty("handled", trackedError.handled());
+-
+-        final var attributes = new JsonObject();
+-        if (defaultAttributes != null) defaultAttributes.forEachPrimitive(attributes::add);
+-        trackedError.attributes().forEachPrimitive(attributes::add);
+-        if (!attributes.isEmpty()) report.add("context", attributes);
+-
+-        return report;
+-    }
+-
+-    private static void appendCauseChain(TrackedError.@Nullable ThrowableSnapshot cause, final List<String> parentStack,
+-                                         @Nullable final List<String> suppress, final JsonArray stacktrace,
+-                                         final List<Map.Entry<Pattern, String>> customPatterns) {
+-        final var toSuppress = new ArrayList<>(parentStack);
+-        if (suppress != null) toSuppress.addAll(suppress);
+-        while (cause != null) {
+-            final var causeMessage = anonymize(cause.message(), customPatterns);
+-            final var header = causeMessage != null
+-                    ? "Caused by: " + cause.type().getName() + ": " + causeMessage
+-                    : "Caused by: " + cause.type().getName();
+-            stacktrace.add(header);
+-
+-            final var causeElements = cause.stackTraces();
+-            final var causeStack = collapseStackTrace(causeElements);
+-            final var causeList = new ArrayList<>(causeStack);
+-            causeList.removeAll(toSuppress);
+-            final var causeTraces = Math.min(causeList.size(), MAX_STACK_SIZE);
+-            populateTraces(causeTraces, causeList, causeElements, stacktrace);
+-
+-            cause = cause.cause();
+-        }
+-    }
+-
+-    private static void populateTraces(final int traces, final List<String> list, final StackTraceElement[] elements,
+-                                       final JsonArray stacktrace) {
+-        for (var i = 0; i < traces; i++) {
+-            final var string = list.get(i);
+-            if (MAX_FRAME_SIZE < 0 || string.length() <= MAX_FRAME_SIZE) stacktrace.add("  at " + string);
+-            else stacktrace.add("  at " + string.substring(0, MAX_FRAME_SIZE) + "...");
+-        }
+-        if (traces > 0 && traces < list.size()) {
+-            stacktrace.add("  ... " + (list.size() - traces) + " more");
+-        } else {
+-            final var i = elements.length - list.size();
+-            if (i > 0) stacktrace.add("  ... " + i + " more");
+-        }
+-    }
+-
+-    private static List<String> collapseStackTrace(final StackTraceElement[] trace) {
+-        final var lines = Arrays.stream(trace)
+-                .map(StackTraceElement::toString)
+-                .toList();
+-
+-        return collapseRepeatingPattern(lines);
+-    }
+-
+-    private static List<String> collapseRepeatingPattern(final List<String> lines) {
+-        final var deduplicated = collapseConsecutiveDuplicates(lines);
+-
+-        final var n = deduplicated.size();
+-
+-        for (var cycleLen = 1; cycleLen <= n / 2; cycleLen++) {
+-            var isPattern = true;
+-            var repetitions = 0;
+-
+-            for (var i = 0; i < n; i++) {
+-                if (!deduplicated.get(i).equals(deduplicated.get(i % cycleLen))) {
+-                    isPattern = false;
+-                    break;
+-                }
+-                if (i > 0 && i % cycleLen == 0) repetitions++;
+-            }
+-
+-            if (isPattern && repetitions >= 2) {
+-                return deduplicated.subList(0, cycleLen);
+-            }
+-        }
+-
+-        return deduplicated;
+-    }
+-
+-    private static List<String> collapseConsecutiveDuplicates(final List<String> lines) {
+-        if (lines.isEmpty()) return lines;
+-
+-        final var result = new ArrayList<String>();
+-        String previous = null;
+-
+-        for (final var line : lines) {
+-            if (line.equals(previous)) continue;
+-            result.add(line);
+-            previous = line;
+-        }
+-
+-        return result;
+-    }
+-
+-    private static final StackWalker STACK_WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+-
+-    public static @Nullable ClassLoader callerClassLoader() {
+-        return STACK_WALKER.walk(frames -> frames
+-                        .map(StackWalker.StackFrame::getDeclaringClass)
+-                        .filter(type -> type != ErrorHelper.class && type != ErrorTracker.class)
+-                        .filter(type -> type.getClassLoader() != null)
+-                        .findFirst())
+-                .orElse(ErrorTracker.class)
+-                .getClassLoader();
+-    }
+-
+-    public static boolean isSameLoader(@Nullable final Thread thread, final ClassLoader loader, final Throwable error) {
+-        return isSameLoader(thread, loader, error, Collections.newSetFromMap(new IdentityHashMap<>()));
+-    }
+-
+-    private static boolean isSameLoader(@Nullable final Thread thread, final ClassLoader loader, @Nullable final Throwable error, final Set<Throwable> visited) {
+-        if (error == null || !visited.add(error)) return false;
+-
+-        final var stackTrace = error.getStackTrace();
+-        if (stackTrace == null || stackTrace.length == 0)
+-            return isSameLoader(thread, loader, error.getCause(), visited);
+-
+-        final var firstNonLibraryIndex = findFirstNonLibraryFrameIndex(stackTrace);
+-        if (firstNonLibraryIndex == -1) return isSameLoader(thread, loader, error.getCause(), visited);
+-
+-        final var framesToCheck = Math.min(5, stackTrace.length - firstNonLibraryIndex);
+-
+-        for (var i = 0; i < framesToCheck; i++) {
+-            final var frame = stackTrace[firstNonLibraryIndex + i];
+-            if (isLibraryFrame(frame.getClassName())) continue;
+-            if (!isFromLoader(frame, loader)) return isSameLoader(thread, loader, error.getCause(), visited);
+-        }
+-
+-        return thread == null || isRelatedContextLoader(thread.getContextClassLoader(), loader);
+-    }
+-
+-    private static boolean isRelatedContextLoader(@Nullable final ClassLoader contextLoader, final ClassLoader loader) {
+-        if (contextLoader == null) return true;
+-        if (contextLoader == ClassLoader.getSystemClassLoader()) return true;
+-        if (contextLoader == ClassLoader.getPlatformClassLoader()) return true;
+-        return isSameClassLoader(contextLoader, loader) || isSameClassLoader(loader, contextLoader);
+-    }
+-
+-    private static int findFirstNonLibraryFrameIndex(final StackTraceElement[] stackTrace) {
+-        for (var i = 0; i < stackTrace.length; i++) {
+-            if (!isLibraryFrame(stackTrace[i].getClassName())) return i;
+-        }
+-        return -1;
+-    }
+-
+-    static boolean isLibraryFrame(final String frame) {
+-        return frame.startsWith("java.")
+-                || frame.startsWith("javax.")
+-                || frame.startsWith("sun.")
+-                || frame.startsWith("com.sun.")
+-                || frame.startsWith("jdk.");
+-    }
+-
+-    private static boolean isFromLoader(final StackTraceElement frame, final ClassLoader loader) {
+-        try {
+-            final var clazz = Class.forName(frame.getClassName(), false, loader);
+-            return isSameClassLoader(clazz.getClassLoader(), loader);
+-        } catch (final Throwable t) {
+-            return false;
+-        }
+-    }
+-
+-    private static boolean isSameClassLoader(final ClassLoader classLoader, final ClassLoader loader) {
+-        if (classLoader == loader) return true;
+-        var current = classLoader;
+-        while (current != null && current != loader) {
+-            current = current.getParent();
+-        }
+-        return loader == current;
+-    }
+-
+-    private static @Nullable String findFirstMessage(final TrackedError.@Nullable ThrowableSnapshot error) {
+-        if (error == null) return null;
+-        final var message = error.message();
+-        if (message != null) return message;
+-        return findFirstMessage(error.cause());
+-    }
+-
+-    private static @Nullable String anonymize(@Nullable final String message, final List<Map.Entry<Pattern, String>> customPatterns) {
+-        if (message == null) return null;
+-        var truncated = message.length() > MAX_MESSAGE_LENGTH
+-                ? message.substring(0, MAX_MESSAGE_LENGTH) + "..."
+-                : message;
+-        for (final var entry : customPatterns) {
+-            truncated = entry.getKey().matcher(truncated).replaceAll(entry.getValue());
+-        }
+-        return truncated;
+-    }
+-
+-    private static List<Map.Entry<Pattern, String>> defaultAnonymizationEntries() {
+-        final var entries = new ArrayList<>(List.of(
+-                Map.entry(ipv4Pattern(), "[IP hidden]"),
+-                Map.entry(ipv6Pattern(), "[IP hidden]"),
+-                Map.entry(userHomePathPattern(), "$1$2$3[username hidden]"),
+-                Map.entry(discordWebhookPattern(), "$1[id hidden]/[token hidden]"),
+-                Map.entry(jdbcUrlPattern(), "$1[password hidden]$2")
+-        ));
+-        usernamePattern().ifPresent(pattern -> entries.add(Map.entry(pattern, "[username hidden]")));
+-        return entries;
+-    }
+-
+-    private static Pattern discordWebhookPattern() {
+-        return Pattern.compile("(https://(?:discord\\.com|canary\\.discord\\.com|ptb\\.discord\\.com|discordapp\\.com)/api/(?:v\\d+/)?webhooks/)\\d+/[\\w-]+(?:\\?\\S*)?");
+-    }
+-
+-    private static Pattern ipv4Pattern() {
+-        return Pattern.compile("\\b(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\b");
+-    }
+-
+-    private static Pattern ipv6Pattern() {
+-        return Pattern.compile("(?i)\\b([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\\b|" + // Full form
+-                "(?i)\\b([0-9a-f]{1,4}:){1,7}:\\b|" +                          // Trailing ::
+-                "(?i)\\b([0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}\\b|" +             // :: in middle (1 group after)
+-                "(?i)\\b([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}\\b|" +      // :: in middle (2 groups after)
+-                "(?i)\\b([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}\\b|" +      // :: in middle (3 groups after)
+-                "(?i)\\b([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}\\b|" +      // :: in middle (4 groups after)
+-                "(?i)\\b([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}\\b|" +      // :: in middle (5 groups after)
+-                "(?i)\\b[0-9a-f]{1,4}:(:[0-9a-f]{1,4}){1,6}\\b|" +             // :: in middle (6 groups after)
+-                "(?i)\\b:(:[0-9a-f]{1,4}){1,7}\\b|" +                          // Leading ::
+-                "(?i)\\b::([0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4}\\b|" +            // :: at start
+-                "(?i)\\b::\\b");                                               // Just ::
+-    }
+-
+-    private static Pattern jdbcUrlPattern() {
+-        return Pattern.compile("(jdbc:[^:]+://[^:]+:(?:\\d+:)?)[^@]+(@)");
+-    }
+-
+-    private static Pattern userHomePathPattern() {
+-        return Pattern.compile("(/home/)[^/\\s]+" +       // Linux: /home/username
+-                "|(/Users/)[^/\\s]+" +                    // macOS: /Users/username
+-                "|((?i)[A-Z]:\\\\Users\\\\)[^\\\\\\s]+"); // Windows: A-Z:\\Users\\username
+-    }
+-
+-    private static Optional<Pattern> usernamePattern() {
+-        return Optional.ofNullable(System.getProperty("user.name"))
+-                .filter(s -> s.trim().length() > 2)
+-                .filter(s -> !allowedNames.contains(s.toLowerCase(Locale.ROOT)))
+-                .map(Pattern::quote)
+-                .map(s -> Pattern.compile(s, Pattern.CASE_INSENSITIVE));
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/ErrorTracker.java
++++ /dev/null
+@@ -1,310 +0,0 @@
+-package dev.faststats;
+-
+-import org.intellij.lang.annotations.RegExp;
+-import org.jetbrains.annotations.Contract;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.util.Optional;
+-import java.util.function.BiConsumer;
+-import java.util.function.BiPredicate;
+-import java.util.regex.Pattern;
+-
+-/**
+- * An error tracker.
+- *
+- * @since 0.24.0
+- */
+-public sealed interface ErrorTracker permits SimpleErrorTracker {
+-    /**
+-     * Creates a context-aware error tracker policy for the class loader of the calling class.
+-     *
+-     * @return the error tracker policy
+-     * @see #contextAware(ClassLoader)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = " -> new")
+-    static ErrorTracker contextAware() {
+-        return contextAware(ErrorHelper.callerClassLoader());
+-    }
+-
+-    /**
+-     * Creates a context-aware error tracker policy for the given class loader.
+-     * <p>
+-     * The returned tracker has its error context attached immediately. If the class
+-     * loader is {@code null}, the tracker will track all errors.
+-     *
+-     * @param classLoader the class loader whose errors should be tracked, or {@code null} to track all errors
+-     * @return the error tracker policy
+-     * @throws IllegalStateException if the error context is already attached
+-     * @see #attachErrorContext(ClassLoader)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> new")
+-    static ErrorTracker contextAware(@Nullable final ClassLoader classLoader) {
+-        final var tracker = new SimpleErrorTracker();
+-        tracker.attachErrorContext(classLoader);
+-        return tracker;
+-    }
+-
+-    /**
+-     * Creates a context-unaware error tracker policy.
+-     *
+-     * @return the error tracker policy
+-     * @since 0.24.0
+-     */
+-    @Contract(value = " -> new", pure = true)
+-    static ErrorTracker contextUnaware() {
+-        return new SimpleErrorTracker();
+-    }
+-
+-    /**
+-     * Returns the global error context attributes configured for this tracker.
+-     *
+-     * @return the global error context attributes
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Attributes getAttributes();
+-
+-    /**
+-     * Tracks a handled  error.
+-     *
+-     * @param message the error message
+-     * @return a new mutable tracked error
+-     * @see #trackError(Throwable)
+-     * @since 0.24.0
+-     */
+-    @Contract(mutates = "this")
+-    TrackedError trackError(String message);
+-
+-    /**
+-     * Tracks a handled error.
+-     *
+-     * @param error the error
+-     * @return a new mutable tracked error
+-     * @since 0.24.0
+-     */
+-    @Contract(mutates = "this")
+-    TrackedError trackError(Throwable error);
+-
+-    /**
+-     * Adds an error type that will not be reported to FastStats.
+-     * <p>
+-     * Matching is done exactly. If, for example {@link LinkageError} was ignored,
+-     * {@link NoClassDefFoundError} would still be reported, even though it extends {@link LinkageError}
+-     *
+-     * @param type the error type
+-     * @return the error tracker
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    ErrorTracker ignoreError(Class<? extends Throwable> type);
+-
+-    /**
+-     * Adds a pattern that will be matched against all error messages.
+-     * <p>
+-     * If an error's message matches the given pattern, it will not be reported to FastStats.
+-     * <pre>{@code
+-     * // Exact match
+-     * tracker.ignoreError(Pattern.compile("No space left on device"));
+-     *
+-     * // Regex match
+-     * tracker.ignoreError(Pattern.compile("No serializer for: class .*"));
+-     * }</pre>
+-     *
+-     * @param pattern the regex pattern to match against error messages
+-     * @return the error tracker
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    ErrorTracker ignoreError(Pattern pattern);
+-
+-    /**
+-     * Adds a pattern that will be matched against all error messages.
+-     * <p>
+-     * If an error's message matches the given pattern, it will not be reported to FastStats.
+-     *
+-     * @param pattern the regex pattern string to match against error messages
+-     * @return the error tracker
+-     * @see #ignoreError(Pattern)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    default ErrorTracker ignoreError(@RegExp final String pattern) {
+-        return ignoreError(Pattern.compile(pattern));
+-    }
+-
+-    /**
+-     * Adds an error type combined with a message pattern that will not be reported to FastStats.
+-     * <p>
+-     * An error is ignored only if its class matches the given type exactly and its message matches the given pattern.
+-     * <pre>{@code
+-     * tracker.ignoreError(IOException.class, Pattern.compile("No space left on device"));
+-     * }</pre>
+-     *
+-     * @param type    the error type
+-     * @param pattern the regex pattern to match against error messages
+-     * @return the error tracker
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> this", mutates = "this")
+-    ErrorTracker ignoreError(Class<? extends Throwable> type, Pattern pattern);
+-
+-    /**
+-     * Adds an error type combined with a message pattern that will not be reported to FastStats.
+-     * <p>
+-     * An error is ignored only if its class matches the given type exactly and its message matches the given pattern.
+-     *
+-     * @param type    the error type
+-     * @param pattern the regex pattern string to match against error messages
+-     * @return the error tracker
+-     * @see #ignoreError(Class, Pattern)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> this", mutates = "this")
+-    default ErrorTracker ignoreError(final Class<? extends Throwable> type, @RegExp final String pattern) {
+-        return ignoreError(type, Pattern.compile(pattern));
+-    }
+-
+-    /**
+-     * Adds a rule that excludes automatically tracked errors from being reported to FastStats.
+-     * <p>
+-     * Rules are only applied to errors captured through an attached error context,
+-     * after the error has been attributed to the tracker's class loader.
+-     * <p>
+-     * If any rule returns {@code true} for the thread and error, the error is not tracked.
+-     * <pre>{@code
+-     * // Exclude all errors without a package frame from "your.package.name"
+-     * tracker.addExclusionRule((thread, error) -> {
+-     *   for (final var element : error.getStackTrace()) {
+-     *     if (element.getClassName().startsWith("your.package.name")) {
+-     *       return false; // track this error
+-     *     }
+-     *   }
+-     *   return true; // do not track this error
+-     * });
+-     * }</pre>
+-     *
+-     * @param rule the rule deciding whether an error on the given thread should be excluded
+-     * @return the error tracker
+-     * @see #attachErrorContext(ClassLoader)
+-     * @since 0.31.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    ErrorTracker addExclusionRule(BiPredicate<Thread, Throwable> rule);
+-
+-    /**
+-     * Adds an anonymization pattern that replaces matched text in error messages.
+-     * <pre>{@code
+-     * tracker.anonymize(Pattern.compile("token=[^&]+"), "token=[redacted]");
+-     * }</pre>
+-     *
+-     * @param pattern     the regex pattern to match
+-     * @param replacement the replacement string
+-     * @return the error tracker
+-     * @see java.util.regex.Matcher#replaceAll(String)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> this", mutates = "this")
+-    ErrorTracker anonymize(Pattern pattern, String replacement);
+-
+-    /**
+-     * Adds an anonymization pattern that replaces matched text in error messages.
+-     *
+-     * @param pattern     the regex pattern string to match
+-     * @param replacement the replacement string
+-     * @return the error tracker
+-     * @see #anonymize(Pattern, String)
+-     * @see java.util.regex.Matcher#replaceAll(String)
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> this", mutates = "this")
+-    default ErrorTracker anonymize(@RegExp final String pattern, final String replacement) {
+-        return anonymize(Pattern.compile(pattern), replacement);
+-    }
+-
+-    /**
+-     * Attaches an error context to the tracker.
+-     * <p>
+-     * If the class loader is {@code null}, the tracker will track all errors.
+-     *
+-     * @param loader the class loader
+-     * @throws IllegalStateException if the error context is already attached
+-     * @since 0.23.0
+-     */
+-    void attachErrorContext(@Nullable ClassLoader loader) throws IllegalStateException;
+-
+-    /**
+-     * Detaches the error context from the tracker.
+-     * <p>
+-     * This restores the original uncaught exception handler that was in place before
+-     * {@link #attachErrorContext(ClassLoader)} was called.
+-     * <p>
+-     * This should be called during shutdown to prevent {@link BootstrapMethodError}
+-     * when the provider's JAR file is closed.
+-     *
+-     * @since 0.23.0
+-     */
+-    void detachErrorContext();
+-
+-    /**
+-     * Returns whether an error context is attached.
+-     *
+-     * @return whether an error context is attached
+-     * @since 0.23.0
+-     */
+-    @Contract(pure = true)
+-    boolean isContextAttached();
+-
+-    /**
+-     * Sets the error event handler which will be called when an error is tracked automatically.
+-     * <p>
+-     * The purpose of this handler is to allow custom error handling like logging.
+-     *
+-     * @param errorEvent the error event handler
+-     * @since 0.23.0
+-     */
+-    @Contract(mutates = "this")
+-    void setContextErrorHandler(@Nullable BiConsumer<@Nullable ClassLoader, Throwable> errorEvent);
+-
+-    /**
+-     * Returns the error event handler which will be called when an error is tracked automatically.
+-     *
+-     * @return the error event handler
+-     * @since 0.23.0
+-     */
+-    @Contract(pure = true)
+-    Optional<BiConsumer<@Nullable ClassLoader, Throwable>> getContextErrorHandler();
+-
+-    /**
+-     * Checks if the error occurred in the same class loader as the provided loader.
+-     *
+-     * @param loader the class loader
+-     * @param error  the error
+-     * @return whether the error occurred in the same class loader
+-     * @since 0.23.0
+-     */
+-    @Contract(pure = true)
+-    static boolean isSameLoader(final ClassLoader loader, final Throwable error) {
+-        return ErrorHelper.isSameLoader(null, loader, error);
+-    }
+-
+-    /**
+-     * Checks if the error occurred in the same class loader as the provided loader,
+-     * taking the context class loader of the given thread into account.
+-     * <p>
+-     * In addition to the stack frame check of {@link #isSameLoader(ClassLoader, Throwable)}, the
+-     * thread's context class loader must be either {@code null}, or be the given loader, one of
+-     * its parents or one of its children.
+-     *
+-     * @param thread the thread the error occurred on
+-     * @param loader the class loader
+-     * @param error  the error
+-     * @return whether the error occurred in the same class loader
+-     * @since 0.31.0
+-     */
+-    @Contract(pure = true)
+-    static boolean isSameLoader(final Thread thread, final ClassLoader loader, final Throwable error) {
+-        return ErrorHelper.isSameLoader(thread, loader, error);
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/ErrorTrackerService.java
++++ /dev/null
+@@ -1,34 +0,0 @@
+-package dev.faststats;
+-
+-import org.jetbrains.annotations.Contract;
+-
+-/**
+- * A service for managing error trackers.
+- * <p>
+- * Use {@link FastStatsContext#errorTrackerService()} to access the context service instance.
+- *
+- * @since 0.24.0
+- */
+-public sealed interface ErrorTrackerService permits SimpleErrorTrackerService {
+-    /**
+-     * Returns the global/internal error tracker configured for this service.
+-     *
+-     * @return the global/internal error tracker
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    ErrorTracker globalErrorTracker();
+-
+-    /**
+-     * Registers an additional error tracker for submission with this service.
+-     * <p>
+-     * Additional trackers registered here are submitted by the same context, but are not
+-     * used for internal FastStats errors.
+-     *
+-     * @param errorTracker the additional error tracker
+-     * @return this service
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    ErrorTrackerService registerErrorTracker(ErrorTracker errorTracker);
+-}
+--- a/core/src/main/java/dev/faststats/FastStatsContext.java
++++ b/core/src/main/java/dev/faststats/FastStatsContext.java
+@@ -11,8 +11,8 @@
+ /**
+  * Shared FastStats context.
+  * <p>
+- * A context provides a shared configuration, token, metrics, feature flag service,
+- * and error tracker service for a project.
++ * A context provides a shared configuration, token, metrics and optional services
++ * for a project.
+  * Platforms create contexts by configuring a {@link SimpleContext.Builder}.
+  *
+  * @since 0.24.0
+@@ -47,22 +47,26 @@
+     Optional<Metrics> metrics();
+ 
+     /**
+-     * Gets the feature flag service bound to this context.
++     * Gets a service attached to this context by type.
++     * <p>
++     * Optional features such as error tracking and feature flags are separate artifacts;
++     * add their factory with {@link Builder#service(java.util.function.Function)}.
+      *
+-     * @return the context feature flag service, if one was configured
+-     * @since 0.24.0
++     * @param serviceClass the service type
++     * @param <T>          the service type
++     * @return the service, if one was configured
++     * @since 0.33.0
+      */
+     @Contract(pure = true)
+-    Optional<FeatureFlagService> featureFlagService();
++    <T extends FastStatsService> Optional<T> service(Class<T> serviceClass);
+ 
+     /**
+-     * Gets the error tracker service bound to this context.
++     * Reports an internal error to the attached services.
+      *
+-     * @return the context error tracker service, if one was configured
+-     * @since 0.24.0
++     * @param error the error
++     * @since 0.33.0
+      */
+-    @Contract(pure = true)
+-    Optional<ErrorTrackerService> errorTrackerService();
++    void trackError(Throwable error);
+ 
+     /**
+      * Performs additional post-startup tasks for configured context services.
+@@ -132,13 +136,10 @@
+         ConsentBuilder onShutdown(Consumer<FastStatsContext> hook);
+ 
+         @Override
+-        ConsentBuilder errorTrackerService(ErrorTracker errorTracker);
++        ConsentBuilder service(Function<SimpleContext, ? extends FastStatsService> service);
+ 
+         @Override
+         ConsentBuilder metrics(Function<Metrics.Factory, Metrics> metrics);
+-
+-        @Override
+-        ConsentBuilder featureFlagService(Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService);
+     }
+ 
+     /**
+@@ -188,14 +189,18 @@
+         Builder onShutdown(final Consumer<FastStatsContext> hook);
+ 
+         /**
+-         * Configures the global/internal error tracker for the context.
++         * Adds an optional service to the context.
++         * <p>
++         * The factory receives the created context, so the service can use its logger,
++         * configuration, scheduler and submission helpers. Services are started before the
++         * metrics submission task and shut down before the metrics are flushed.
+          *
+-         * @param errorTracker the global/internal error tracker
++         * @param service the service factory
+          * @return this builder
+-         * @since 0.24.0
++         * @since 0.33.0
+          */
+         @Contract(value = "_ -> this", mutates = "this")
+-        Builder errorTrackerService(final ErrorTracker errorTracker);
++        Builder service(final Function<SimpleContext, ? extends FastStatsService> service);
+ 
+         /**
+          * Configures and creates the single metrics instance for the context.
+@@ -208,16 +213,6 @@
+         Builder metrics(final Function<Metrics.Factory, Metrics> metrics);
+ 
+         /**
+-         * Configures and creates the single feature flag service instance for the context.
+-         *
+-         * @param featureFlagService a function that receives a new service factory and returns the built service instance
+-         * @return this builder
+-         * @since 0.24.0
+-         */
+-        @Contract(value = "_ -> this", mutates = "this")
+-        Builder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService);
+-
+-        /**
+          * Builds the configured context.
+          *
+          * @return the configured context
+--- /dev/null
++++ b/core/src/main/java/dev/faststats/FastStatsService.java
+@@ -0,0 +1,39 @@
++package dev.faststats;
++
++import org.jetbrains.annotations.ApiStatus;
++
++/**
++ * A service attached to a {@link FastStatsContext}.
++ * <p>
++ * Services are created from the factories added to
++ * {@link FastStatsContext.Builder#service(java.util.function.Function)} and follow the
++ * context lifecycle: {@link #onStart()} runs before the first submission task is scheduled,
++ * and {@link #onShutdown()} runs when the context is shut down.
++ * <p>
++ * Optional features such as error tracking and feature flags live in separate artifacts
++ * and are attached through this interface.
++ *
++ * @since 0.33.0
++ */
++@ApiStatus.Internal
++public interface FastStatsService {
++    /**
++     * Called when submission is started.
++     */
++    default void onStart() {
++    }
++
++    /**
++     * Called when the context is shut down.
++     */
++    default void onShutdown() {
++    }
++
++    /**
++     * Called when an internal FastStats error should be reported.
++     *
++     * @param error the error
++     */
++    default void onError(final Throwable error) {
++    }
++}
+--- a/core/src/main/java/dev/faststats/FeatureFlag.java
++++ /dev/null
+@@ -1,215 +0,0 @@
+-package dev.faststats;
+-
+-import org.jetbrains.annotations.Contract;
+-
+-import java.time.Instant;
+-import java.util.Optional;
+-import java.util.concurrent.CompletableFuture;
+-
+-/**
+- * A feature flag.
+- * <p>
+- * Feature flags are defined via {@link FeatureFlagService#define} and are bound to
+- * the service's cache and lifecycle.
+- *
+- * @param <T> the flag value type
+- * @since 0.24.0
+- */
+-public sealed interface FeatureFlag<T> permits SimpleFeatureFlag {
+-    /**
+-     * Get the flag identifier.
+-     *
+-     * @return the flag id
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    String getId();
+-
+-    /**
+-     * Returns the type representing the value type of this flag.
+-     *
+-     * @return the value type class
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Type getType();
+-
+-    /**
+-     * Returns the class representing the value type of this flag.
+-     * <p>
+-     * This always returns exactly one of {@link String}.class,
+-     * {@link Number}.class, or {@link Boolean}.class, matching {@link #getType()}.
+-     *
+-     * @return the value type class
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Class<T> getTypeClass();
+-
+-    /**
+-     * Get the current cached flag value.
+-     * <p>
+-     * It returns {@link Optional#empty() empty} until a value has been fetched and
+-     * stored locally.
+-     *
+-     * @return the cached value, if present
+-     * @see #fetch()
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Optional<T> getCached();
+-
+-    /**
+-     * Get the expiration time for the current cached value.
+-     * <p>
+-     * If no value has been cached yet, this returns {@link Optional#empty()}.
+-     * The returned timestamp indicates when the cached value should be treated
+-     * as stale according to the configured TTL.
+-     *
+-     * @return the expiration time of the cached value, if present
+-     * @see #isValid()
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Optional<Instant> getExpiration();
+-
+-    /**
+-     * Returns whether the current cached value is expired.
+-     * <p>
+-     * A value is expired when no fetch has completed yet or when the
+-     * configured TTL has elapsed since the last fetch.
+-     *
+-     * @return {@code true} if the cached value is absent or stale
+-     * @see #getExpiration()
+-     * @see #isValid()
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    boolean isExpired();
+-
+-    /**
+-     * Returns whether the current cached value is still valid.
+-     * <p>
+-     * A value is valid when it is cached and its configured TTL has not yet
+-     * expired. This method is non-blocking and never performs a network
+-     * request.
+-     *
+-     * @return {@code true} if a non-expired cached value is available
+-     * @see #getExpiration()
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    boolean isValid();
+-
+-    /**
+-     * Return a future that completes with the flag value once it is ready.
+-     * <p>
+-     * If the value is valid according to {@link #isValid()},
+-     * the returned future completes immediately. Otherwise, a new fetch is
+-     * performed and the future completes when the response arrives.
+-     *
+-     * @return a future completing with the flag value
+-     * @see #fetch()
+-     * @since 0.24.0
+-     */
+-    CompletableFuture<T> whenReady();
+-
+-    /**
+-     * Force a fresh fetch of the flag value from the server.
+-     * <p>
+-     * Unlike {@link #whenReady()}, this always performs a server request.
+-     * <p>
+-     * The returned future may complete exceptionally if the request fails, the
+-     * server returns a non-successful response, or the response body cannot be
+-     * parsed as the requested flag type. The most common non-successful response
+-     * is an unknown flag identifier.
+-     * <p>
+-     * Failed fetches do not update the cached value. Failure details are only
+-     * logged when debug logging is enabled.
+-     * <p>
+-     * While submission is not active, for example before the user gave consent
+-     * or on the first run of a server, no request is sent and the future
+-     * completes with the {@linkplain #getDefaultValue() default value}.
+-     * The cached value is not updated.
+-     *
+-     * @return a future completing with the latest server value
+-     * @see #whenReady()
+-     * @since 0.24.0
+-     */
+-    @Contract(mutates = "this")
+-    CompletableFuture<T> fetch();
+-
+-    /**
+-     * Request that the server opt in to this flag, then invalidate the local
+-     * value and fetch the current server value again.
+-     * <p>
+-     * This sends a {@code POST /v1/flag/opt-in} request. The server determines
+-     * the resulting flag value based on its own conditions.
+-     * <p>
+-     * The returned future completes with the updated value after the local
+-     * cache has been reset and the follow-up fetch finishes.
+-     * It completes exceptionally with an {@link IllegalStateException}
+-     * if submission is not active.
+-     *
+-     * @return a future completing with the updated flag value
+-     * @see #fetch()
+-     * @since 0.24.0
+-     */
+-    @Contract(mutates = "this")
+-    CompletableFuture<T> optIn();
+-
+-    /**
+-     * Request that the server opt out of this flag, then invalidate the local
+-     * value and fetch the current server value again.
+-     * <p>
+-     * This sends a {@code POST /v1/flag/opt-out} request.
+-     * <p>
+-     * The returned future completes with the updated value after the local
+-     * cache has been reset and the follow-up fetch finishes.
+-     * It completes exceptionally with an {@link IllegalStateException}
+-     * if submission is not active.
+-     *
+-     * @return a future completing with the updated flag value
+-     * @see #fetch()
+-     * @since 0.24.0
+-     */
+-    @Contract(mutates = "this")
+-    CompletableFuture<T> optOut();
+-
+-    /**
+-     * Get the default value for this flag.
+-     *
+-     * @return the default value
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    T getDefaultValue();
+-
+-    /**
+-     * Supported value types for feature flags.
+-     *
+-     * @since 0.24.0
+-     */
+-    enum Type {
+-        /**
+-         * A string-valued flag.
+-         *
+-         * @since 0.24.0
+-         */
+-        STRING,
+-
+-        /**
+-         * A boolean-valued flag.
+-         *
+-         * @since 0.24.0
+-         */
+-        BOOLEAN,
+-
+-        /**
+-         * A numeric flag.
+-         *
+-         * @since 0.24.0
+-         */
+-        NUMBER
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/FeatureFlagService.java
++++ /dev/null
+@@ -1,144 +0,0 @@
+-package dev.faststats;
+-
+-import org.jetbrains.annotations.Contract;
+-
+-import java.time.Duration;
+-
+-/**
+- * A service for managing feature flags.
+- * <p>
+- * Use {@link FastStatsContext#featureFlagService()} to access the context service instance.
+- *
+- * @since 0.24.0
+- */
+-public sealed interface FeatureFlagService permits SimpleFeatureFlagService {
+-    /**
+-     * Define a boolean feature flag.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> new", pure = true)
+-    FeatureFlag<Boolean> define(String id, boolean defaultValue);
+-
+-    /**
+-     * Define a boolean feature flag with per-flag targeting attributes.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @param attributes   the per-flag targeting attributes, merged with the service attributes
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _, _ -> new", pure = true)
+-    FeatureFlag<Boolean> define(String id, boolean defaultValue, Attributes attributes);
+-
+-    /**
+-     * Define a string feature flag.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> new", pure = true)
+-    FeatureFlag<String> define(String id, String defaultValue);
+-
+-    /**
+-     * Define a string feature flag with per-flag targeting attributes.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @param attributes   the per-flag targeting attributes, merged with the service attributes
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _, _ -> new", pure = true)
+-    FeatureFlag<String> define(String id, String defaultValue, Attributes attributes);
+-
+-    /**
+-     * Define a number feature flag.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _ -> new", pure = true)
+-    FeatureFlag<Number> define(String id, Number defaultValue);
+-
+-    /**
+-     * Define a number feature flag with per-flag targeting attributes.
+-     *
+-     * @param id           the flag identifier
+-     * @param defaultValue the default value
+-     * @param attributes   the per-flag targeting attributes, merged with the service attributes
+-     * @return the feature flag
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_, _, _ -> new", pure = true)
+-    FeatureFlag<Number> define(String id, Number defaultValue, Attributes attributes);
+-
+-    /**
+-     * Returns the global targeting attributes configured for this service.
+-     * <p>
+-     * These attributes apply to every flag defined by the service and are
+-     * merged with any per-flag attributes supplied during definition.
+-     *
+-     * @return the global targeting attributes
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    Attributes getAttributes();
+-
+-    /**
+-     * Returns the cache time-to-live used for resolved flag values.
+-     *
+-     * @return the configured cache time-to-live
+-     * @since 0.24.0
+-     */
+-    Duration getTTL();
+-
+-    /**
+-     * A feature flag service factory.
+-     *
+-     * @since 0.24.0
+-     */
+-    sealed interface Factory permits SimpleFeatureFlagService.Factory {
+-        /**
+-         * Sets the global targeting attributes for services created by this factory.
+-         * <p>
+-         * These attributes apply to every flag defined by the service and are
+-         * merged with any per-flag attributes supplied during definition.
+-         *
+-         * @param attributes the global targeting attributes
+-         * @return the feature flag service factory
+-         * @since 0.24.0
+-         */
+-        @Contract(mutates = "this")
+-        Factory attributes(Attributes attributes);
+-
+-        /**
+-         * Sets the cache time-to-live for resolved flag values.
+-         *
+-         * @param ttl the cache time-to-live for resolved flag values
+-         * @return the feature flag service factory
+-         * @throws IllegalArgumentException if the TTL is negative
+-         * @since 0.24.0
+-         */
+-        @Contract(mutates = "this")
+-        Factory ttl(Duration ttl) throws IllegalArgumentException;
+-
+-        /**
+-         * Creates a new feature flag service.
+-         *
+-         * @return the feature flag service
+-         * @throws IllegalArgumentException if the TTL is negative
+-         * @since 0.24.0
+-         */
+-        @Contract(value = " -> new", pure = true)
+-        FeatureFlagService create() throws IllegalArgumentException;
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SimpleContext.java
++++ b/core/src/main/java/dev/faststats/SimpleContext.java
+@@ -64,8 +64,7 @@
+     private volatile boolean submitting = false;
+ 
+     private final @Nullable SimpleMetrics metrics;
+-    private final @Nullable SimpleFeatureFlagService featureFlagService;
+-    private final @Nullable SimpleErrorTrackerService errorTrackerService;
++    private final List<FastStatsService> services;
+ 
+     private SimpleContext(final Builder builder, @Token final @Nullable String token) {
+         this.loggerFactory = require(builder.loggerFactory, "loggerFactory");
+@@ -91,19 +90,19 @@
+         this.metrics = enabled && builder.metrics != null
+                 ? (SimpleMetrics) builder.metrics.apply(new SimpleMetrics.Factory(this))
+                 : null;
+-        this.errorTrackerService = enabled && builder.errorTracker != null
+-                ? new SimpleErrorTrackerService(this, builder.errorTracker)
+-                : null;
+-        this.featureFlagService = enabled && builder.featureFlagService != null
+-                ? (SimpleFeatureFlagService) builder.featureFlagService.apply(new SimpleFeatureFlagService.Factory(this))
+-                : null;
++        final List<FastStatsService> services = new ArrayList<>(builder.services.size());
++        if (enabled) {
++            for (final Function<SimpleContext, ? extends FastStatsService> factory : builder.services) {
++                services.add(factory.apply(this));
++            }
++        }
++        this.services = List.copyOf(services);
+ 
+         if (enabled) {
+-            logger.info("Created FastStats context for %s using %s (metrics=%s, error-tracking=%s, feature-flags=%s)",
++            logger.info("Created FastStats context for %s using %s (metrics=%s, services=%s)",
+                     projectName, sdkInfo.getUserAgent(),
+                     metrics != null ? "yes" : "no",
+-                    errorTrackerService != null ? "yes" : "no",
+-                    featureFlagService != null ? "yes" : "no"
++                    services.size()
+             );
+         }
+     }
+@@ -178,17 +177,26 @@
+ 
+     @Override
+     @Contract(pure = true)
+-    public Optional<FeatureFlagService> featureFlagService() {
+-        return Optional.ofNullable(featureFlagService);
++    public <T extends FastStatsService> Optional<T> service(final Class<T> serviceClass) {
++        for (final FastStatsService service : services) {
++            if (serviceClass.isInstance(service)) return Optional.of(serviceClass.cast(service));
++        }
++        return Optional.empty();
+     }
+ 
+     @Override
+-    @Contract(pure = true)
+-    public Optional<ErrorTrackerService> errorTrackerService() {
+-        return Optional.ofNullable(errorTrackerService);
++    public void trackError(final Throwable error) {
++        for (final FastStatsService service : services) {
++            try {
++                service.onError(error);
++            } catch (final Throwable t) {
++                logger.error("Failed to track error in service %s", t, service.getClass().getName());
++            }
++        }
+     }
+ 
+-    boolean isSubmitting() {
++    @ApiStatus.Internal
++    public boolean isSubmitting() {
+         return submitting;
+     }
+ 
+@@ -209,7 +217,7 @@
+     public synchronized void startSubmission() {
+         if (!enabled || submitting) return;
+         try {
+-            if (errorTrackerService != null) errorTrackerService.startErrorSubmission();
++            for (final FastStatsService service : services) service.onStart();
+             if (metrics != null) metrics.startSubmitting();
+             this.submitting = true;
+         } catch (final Throwable t) {
+@@ -276,7 +284,8 @@
+      * Used by both metrics and error reports, so the platform data is present
+      * even when no metrics instance is configured.
+      */
+-    void appendPlatformData(final JsonObject metrics) {
++    @ApiStatus.Internal
++    public void appendPlatformData(final JsonObject metrics) {
+         metrics.addProperty("client", clientApplication);
+         metrics.addProperty("core_count", coreCount);
+         metrics.addProperty("java_vendor", javaVendor);
+@@ -287,12 +296,25 @@
+         appendDefaultMetrics(metrics);
+     }
+ 
++    /**
++     * Appends the custom metrics data to the given object.
++     * <p>
++     * Used by optional services that need the metrics data outside the metrics payload,
++     * such as error reports.
++     *
++     * @param metrics the object to append the data to
++     */
++    @ApiStatus.Internal
++    public void appendCustomMetrics(final JsonObject metrics) {
++        if (this.metrics != null) this.metrics.appendCustomData(metrics);
++    }
++
+     private void appendDefaultMetrics(final JsonObject metrics) {
+         try {
+             if (defaultMetrics != null) defaultMetrics.accept(this, metrics);
+         } catch (final Throwable t) {
+             logger.error("Failed to append default metric data", t);
+-            errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++            trackError(t);
+         }
+     }
+ 
+@@ -315,7 +337,8 @@
+     }
+ 
+     @Async.Schedule
+-    void scheduleAtFixedRate(final Runnable task, final long initialDelay, final long period, final TimeUnit unit) {
++    @ApiStatus.Internal
++    public void scheduleAtFixedRate(final Runnable task, final long initialDelay, final long period, final TimeUnit unit) {
+         if (scheduler != null) {
+             cancellations.add(scheduler.scheduleAtFixedRate(task, initialDelay, period, unit));
+             return;
+@@ -334,8 +357,13 @@
+     @Override
+     public void shutdown() {
+         // flushes pending data if submission is active
+-        if (errorTrackerService != null) errorTrackerService.shutdown();
+-        if (featureFlagService != null) featureFlagService.shutdown();
++        for (final FastStatsService service : services) {
++            try {
++                service.onShutdown();
++            } catch (final Throwable t) {
++                logger.error("Failed to shut down service %s", t, service.getClass().getName());
++            }
++        }
+         if (metrics != null) metrics.shutdown();
+         stopSubmission();
+         this.ready = false;
+@@ -500,19 +528,14 @@
+         }
+ 
+         @Override
+-        public ConsentBuilder errorTrackerService(final ErrorTracker errorTracker) {
+-            return (ConsentBuilder) super.errorTrackerService(errorTracker);
++        public ConsentBuilder service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            return (ConsentBuilder) super.service(service);
+         }
+ 
+         @Override
+         public ConsentBuilder metrics(final Function<Metrics.Factory, Metrics> metrics) {
+             return (ConsentBuilder) super.metrics(metrics);
+         }
+-
+-        @Override
+-        public ConsentBuilder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            return (ConsentBuilder) super.featureFlagService(featureFlagService);
+-        }
+     }
+ 
+     /**
+@@ -542,8 +565,7 @@
+         private final List<Consumer<SimpleContext>> buildHooks = new ArrayList<>(1);
+ 
+         private @Nullable Function<Metrics.Factory, Metrics> metrics;
+-        private @Nullable Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService;
+-        private @Nullable ErrorTracker errorTracker;
++        private final List<Function<SimpleContext, ? extends FastStatsService>> services = new ArrayList<>(1);
+ 
+         /**
+          * Creates a new context builder.
+@@ -695,8 +717,8 @@
+ 
+         @Override
+         @Contract(value = "_ -> this", mutates = "this")
+-        public Builder errorTrackerService(final ErrorTracker errorTracker) {
+-            this.errorTracker = errorTracker;
++        public Builder service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            this.services.add(service);
+             return this;
+         }
+ 
+@@ -708,17 +730,10 @@
+         }
+ 
+         @Override
+-        @Contract(value = "_ -> this", mutates = "this")
+-        public Builder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            this.featureFlagService = featureFlagService;
+-            return this;
+-        }
+-
+-        @Override
+         @Contract(value = " -> new", mutates = "io")
+         @SuppressWarnings("PatternValidation")
+         public SimpleContext build() throws IllegalArgumentException, IllegalStateException, UncheckedIOException {
+-            if (metrics == null && errorTracker == null && featureFlagService == null)
++            if (metrics == null && services.isEmpty())
+                 throw new IllegalStateException("Context created without any service attached, was this intentional?");
+             if (token != null && !token.matches(Token.PATTERN))
+                 throw new IllegalArgumentException("Invalid token '" + token + "', must match '" + Token.PATTERN + "'");
+--- a/core/src/main/java/dev/faststats/SimpleErrorTracker.java
++++ /dev/null
+@@ -1,164 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonArray;
+-import org.jetbrains.annotations.VisibleForTesting;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.util.Collections;
+-import java.util.IdentityHashMap;
+-import java.util.List;
+-import java.util.Map;
+-import java.util.Optional;
+-import java.util.Set;
+-import java.util.concurrent.ConcurrentHashMap;
+-import java.util.concurrent.CopyOnWriteArrayList;
+-import java.util.concurrent.CopyOnWriteArraySet;
+-import java.util.function.BiConsumer;
+-import java.util.function.BiPredicate;
+-import java.util.regex.Matcher;
+-import java.util.regex.Pattern;
+-
+-final class SimpleErrorTracker implements ErrorTracker {
+-    private final Map<TrackedError, Integer> reports = new ConcurrentHashMap<>();
+-    private final Attributes attributes = Attributes.empty();
+-
+-    private final Map<Class<? extends Throwable>, Set<Pattern>> ignoredTypedPatterns = new ConcurrentHashMap<>();
+-    private final Set<Class<? extends Throwable>> ignoredTypes = new CopyOnWriteArraySet<>();
+-    private final Set<Pattern> ignoredPatterns = new CopyOnWriteArraySet<>();
+-    private final List<Map.Entry<Pattern, String>> anonymizationEntries = new CopyOnWriteArrayList<>();
+-    private final List<BiPredicate<Thread, Throwable>> contextExclusionRules = new CopyOnWriteArrayList<>();
+-
+-    private volatile @Nullable BiConsumer<@Nullable ClassLoader, Throwable> errorEvent;
+-    private volatile @Nullable ClassLoader attachedLoader;
+-    private volatile boolean contextAttached;
+-
+-    @Override
+-    public Attributes getAttributes() {
+-        return attributes;
+-    }
+-
+-    @Override
+-    public TrackedError trackError(final String message) {
+-        return trackError(new RuntimeException(message));
+-    }
+-
+-    @Override
+-    public TrackedError trackError(final Throwable error) {
+-        final var trackedError = new SimpleTrackedError(error);
+-        try {
+-            if (isIgnored(error, Collections.newSetFromMap(new IdentityHashMap<>()))) return trackedError;
+-            reports.compute(trackedError, (key, reports) -> {
+-                return reports != null ? reports + 1 : 1;
+-            });
+-        } catch (final NoClassDefFoundError ignored) {
+-        }
+-        return trackedError;
+-    }
+-
+-    private boolean isIgnored(@Nullable final Throwable error, final Set<Throwable> visited) {
+-        if (error == null || !visited.add(error)) return false;
+-
+-        if (ignoredTypes.contains(error.getClass())) return true;
+-
+-        final var message = error.getMessage() != null ? error.getMessage() : "";
+-        if (ignoredPatterns.stream().map(pattern -> pattern.matcher(message)).anyMatch(Matcher::find)) return true;
+-
+-        final var patterns = ignoredTypedPatterns.get(error.getClass());
+-        if (patterns != null && patterns.stream().map(pattern -> pattern.matcher(message)).anyMatch(Matcher::find))
+-            return true;
+-
+-        return isIgnored(error.getCause(), visited);
+-    }
+-
+-    @Override
+-    public ErrorTracker ignoreError(final Class<? extends Throwable> type) {
+-        ignoredTypes.add(type);
+-        return this;
+-    }
+-
+-    @Override
+-    public ErrorTracker ignoreError(final Pattern pattern) {
+-        ignoredPatterns.add(pattern);
+-        return this;
+-    }
+-
+-    @Override
+-    public ErrorTracker ignoreError(final Class<? extends Throwable> type, final Pattern pattern) {
+-        ignoredTypedPatterns.computeIfAbsent(type, k -> new CopyOnWriteArraySet<>()).add(pattern);
+-        return this;
+-    }
+-
+-    @Override
+-    public ErrorTracker addExclusionRule(final BiPredicate<Thread, Throwable> rule) {
+-        contextExclusionRules.add(rule);
+-        return this;
+-    }
+-
+-    @Override
+-    public ErrorTracker anonymize(final Pattern pattern, final String replacement) {
+-        anonymizationEntries.add(Map.entry(pattern, replacement));
+-        return this;
+-    }
+-
+-    @VisibleForTesting
+-    public JsonArray getFullData() {
+-        return getData(true);
+-    }
+-
+-    JsonArray getData(final boolean includeTrackerAttributes) {
+-        final var report = new JsonArray(reports.size());
+-        reports.forEach((error, count) -> {
+-            final var attributes = includeTrackerAttributes ? this.attributes : null;
+-            final var compiled = ErrorHelper.compile(error, null, anonymizationEntries, attributes);
+-            if (count > 1) compiled.addProperty("count", count);
+-            report.add(compiled);
+-        });
+-        return report;
+-    }
+-
+-    @VisibleForTesting
+-    public void clear() {
+-        reports.clear();
+-    }
+-
+-    @Override
+-    public synchronized void attachErrorContext(@Nullable final ClassLoader loader) throws IllegalStateException {
+-        if (contextAttached) throw new IllegalStateException("Error context already attached");
+-        contextAttached = true;
+-        attachedLoader = loader;
+-        SimpleErrorTrackerService.attachErrorTracker(this);
+-    }
+-
+-    @Override
+-    public synchronized void detachErrorContext() {
+-        if (!contextAttached) return;
+-        contextAttached = false;
+-        SimpleErrorTrackerService.detachErrorTracker(this);
+-    }
+-
+-    @Override
+-    public boolean isContextAttached() {
+-        return contextAttached;
+-    }
+-
+-    @Override
+-    public synchronized void setContextErrorHandler(@Nullable final BiConsumer<@Nullable ClassLoader, Throwable> errorEvent) {
+-        this.errorEvent = errorEvent;
+-    }
+-
+-    @Override
+-    public synchronized Optional<BiConsumer<@Nullable ClassLoader, Throwable>> getContextErrorHandler() {
+-        return Optional.ofNullable(errorEvent);
+-    }
+-
+-    @Nullable ClassLoader attachedLoader() {
+-        return attachedLoader;
+-    }
+-
+-    boolean isContextErrorIgnored(final Thread thread, final Throwable error) {
+-        for (final var rule : contextExclusionRules) {
+-            if (rule.test(thread, error)) return true;
+-        }
+-        return false;
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SimpleErrorTrackerService.java
++++ /dev/null
+@@ -1,135 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonArray;
+-import com.google.gson.JsonObject;
+-import org.jetbrains.annotations.VisibleForTesting;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.net.URI;
+-import java.util.Set;
+-import java.util.concurrent.CopyOnWriteArraySet;
+-import java.util.concurrent.TimeUnit;
+-
+-final class SimpleErrorTrackerService extends SubmissionService implements ErrorTrackerService {
+-    private static Thread.@Nullable UncaughtExceptionHandler originalHandler;
+-    private static final Set<SimpleErrorTracker> DISPATCHER_TRACKERS = new CopyOnWriteArraySet<>();
+-
+-    private final Set<SimpleErrorTracker> errorTrackers = new CopyOnWriteArraySet<>();
+-    private final SimpleErrorTracker globalErrorTracker;
+-
+-    private final URI url = getServerUrl(
+-            "faststats.error-tracker-server",
+-            "https://metrics.faststats.dev"
+-    ).resolve("/v1/error");
+-
+-    SimpleErrorTrackerService(final SimpleContext context, final ErrorTracker globalErrorTracker) {
+-        super(context);
+-        this.globalErrorTracker = ((SimpleErrorTracker) globalErrorTracker);
+-    }
+-
+-    @Override
+-    public ErrorTracker globalErrorTracker() {
+-        return globalErrorTracker;
+-    }
+-
+-    @Override
+-    public ErrorTrackerService registerErrorTracker(final ErrorTracker errorTracker) {
+-        errorTrackers.add(((SimpleErrorTracker) errorTracker));
+-        return this;
+-    }
+-
+-    static synchronized void attachErrorTracker(final SimpleErrorTracker tracker) {
+-        if (DISPATCHER_TRACKERS.isEmpty()) {
+-            originalHandler = Thread.getDefaultUncaughtExceptionHandler();
+-            Thread.setDefaultUncaughtExceptionHandler(SimpleErrorTrackerService::handleUncaughtException);
+-        }
+-        DISPATCHER_TRACKERS.add(tracker);
+-    }
+-
+-    static synchronized void detachErrorTracker(final SimpleErrorTracker tracker) {
+-        DISPATCHER_TRACKERS.remove(tracker);
+-        if (DISPATCHER_TRACKERS.isEmpty()) {
+-            Thread.setDefaultUncaughtExceptionHandler(originalHandler);
+-            originalHandler = null;
+-        }
+-    }
+-
+-    private static void handleUncaughtException(final Thread thread, final Throwable error) {
+-        for (final var tracker : DISPATCHER_TRACKERS) {
+-            try {
+-                final var loader = tracker.attachedLoader();
+-                if (loader != null && !ErrorHelper.isSameLoader(thread, loader, error)) continue;
+-                if (tracker.isContextErrorIgnored(thread, error)) continue;
+-                tracker.trackError(error).handled(false);
+-                tracker.getContextErrorHandler().ifPresent(handler -> handler.accept(loader, error));
+-            } catch (final Throwable t) {
+-                // todo: replace with better solution
+-                System.err.println("Failed to dispatch uncaught error to tracker");
+-                t.printStackTrace(System.err);
+-            }
+-        }
+-
+-        final var handler = originalHandler;
+-        if (handler != null) handler.uncaughtException(thread, error);
+-    }
+-
+-    private void submit() {
+-        if (!context.isSubmitting() || !context.getConfig().errorTracking()) return;
+-        try {
+-            final var data = createData();
+-            if (data == null) return;
+-
+-            if (submit(url, data, "errors")) clear();
+-        } catch (final Throwable t) {
+-            logger.error("Failed to submit errors", t);
+-        }
+-    }
+-
+-    @VisibleForTesting
+-    public @Nullable JsonObject createData() {
+-        final var globalErrorTrackerData = globalErrorTracker.getData(false);
+-        if (errorTrackers.isEmpty() && globalErrorTrackerData.isEmpty()) return null;
+-
+-        final var data = new JsonObject();
+-        context.getSdkInfo().getBuildId().ifPresent(id -> data.addProperty("buildId", id));
+-        data.addProperty("identifier", context.getConfig().serverId().toString());
+-        data.addProperty("language", "java");
+-        data.addProperty("project_name", context.getProjectName());
+-        data.addProperty("sdk_name", context.getSdkInfo().getName());
+-        data.addProperty("sdk_version", context.getSdkInfo().getVersion());
+-
+-        final var defaultContext = new JsonObject();
+-        context.appendPlatformData(defaultContext);
+-        context.metrics().ifPresent(metrics -> ((SimpleMetrics) metrics).appendCustomData(defaultContext));
+-        globalErrorTracker.getAttributes().forEachPrimitive(defaultContext::add);
+-        data.add("context", defaultContext);
+-
+-        final var errors = new JsonArray();
+-        errors.addAll(globalErrorTrackerData);
+-        errorTrackers.forEach(tracker -> errors.addAll(tracker.getFullData()));
+-        data.add("errors", errors);
+-        return data;
+-    }
+-
+-    public void clear() {
+-        globalErrorTracker.clear();
+-        errorTrackers.forEach(SimpleErrorTracker::clear);
+-    }
+-
+-    void startErrorSubmission() {
+-        logger.info("Starting errors submission task");
+-        final var initialDelay = TimeUnit.SECONDS.toMillis(Long.getLong("faststats.initial-delay", 30));
+-        final var period = TimeUnit.MINUTES.toMillis(30);
+-        context.scheduleAtFixedRate(this::submit, initialDelay, period, TimeUnit.MILLISECONDS);
+-    }
+-
+-    @Override
+-    protected String serverType() {
+-        return "error";
+-    }
+-
+-    public void shutdown() {
+-        submit();
+-        clear();
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SimpleFeatureFlag.java
++++ /dev/null
+@@ -1,141 +0,0 @@
+-package dev.faststats;
+-
+-import org.jspecify.annotations.Nullable;
+-
+-import java.time.Instant;
+-import java.util.Objects;
+-import java.util.Optional;
+-import java.util.concurrent.CompletableFuture;
+-
+-final class SimpleFeatureFlag<T> implements FeatureFlag<T> {
+-    private final SimpleFeatureFlagService service;
+-
+-    private final String id;
+-    private final T defaultValue;
+-    private final @Nullable Attributes attributes;
+-    private final Type type;
+-
+-    private volatile @Nullable T value;
+-    private volatile @Nullable Long lastFetch;
+-
+-    SimpleFeatureFlag(
+-            final String id,
+-            final T defaultValue,
+-            final @Nullable Attributes attributes,
+-            final SimpleFeatureFlagService service
+-    ) {
+-        this.id = id;
+-        this.defaultValue = defaultValue;
+-        this.attributes = attributes;
+-        this.service = service;
+-        if (defaultValue instanceof final String string) {
+-            this.type = Type.STRING;
+-        } else if (defaultValue instanceof final Number number) {
+-            this.type = Type.NUMBER;
+-        } else if (defaultValue instanceof final Boolean bool) {
+-            this.type = Type.BOOLEAN;
+-        } else throw new IllegalArgumentException("Unsupported type: " + defaultValue.getClass().getName());
+-    }
+-
+-    @Override
+-    public String getId() {
+-        return id;
+-    }
+-
+-    @Override
+-    public Type getType() {
+-        return type;
+-    }
+-
+-    @Override
+-    @SuppressWarnings("unchecked")
+-    public Class<T> getTypeClass() {
+-        return (Class<T>) switch (type) {
+-            case STRING -> String.class;
+-            case NUMBER -> Number.class;
+-            case BOOLEAN -> Boolean.class;
+-        };
+-    }
+-
+-    public void setValue(@Nullable final T value) {
+-        this.value = value;
+-    }
+-
+-    public void setLastFetch(@Nullable final Long lastFetch) {
+-        this.lastFetch = lastFetch;
+-    }
+-
+-    @Override
+-    public Optional<T> getCached() {
+-        return Optional.ofNullable(value);
+-    }
+-
+-    @Override
+-    public Optional<Instant> getExpiration() {
+-        final var lastFetch = this.lastFetch;
+-        if (lastFetch == null) return Optional.empty();
+-        return Optional.of(Instant.ofEpochMilli(lastFetch).plus(service.getTTL()));
+-    }
+-
+-    @Override
+-    public boolean isValid() {
+-        return value != null && !isExpired();
+-    }
+-
+-    @Override
+-    public boolean isExpired() {
+-        final var lastFetch = this.lastFetch;
+-        if (lastFetch == null) return true;
+-        return System.currentTimeMillis() - lastFetch > service.getTTL().toMillis();
+-    }
+-
+-    @Override
+-    public CompletableFuture<T> whenReady() {
+-        final var cached = value;
+-        if (cached == null || isExpired()) return fetch();
+-        return CompletableFuture.completedFuture(cached);
+-    }
+-
+-    @Override
+-    public CompletableFuture<T> fetch() {
+-        return service.fetch(this);
+-    }
+-
+-    @Override
+-    public CompletableFuture<T> optIn() {
+-        return service.optIn(this);
+-    }
+-
+-    @Override
+-    public CompletableFuture<T> optOut() {
+-        return service.optOut(this);
+-    }
+-
+-    @Override
+-    public T getDefaultValue() {
+-        return defaultValue;
+-    }
+-
+-    @Nullable Attributes attributes() {
+-        return attributes;
+-    }
+-
+-    @Override
+-    public boolean equals(@Nullable final Object o) {
+-        if (o == null || getClass() != o.getClass()) return false;
+-        final SimpleFeatureFlag<?> that = (SimpleFeatureFlag<?>) o;
+-        return Objects.equals(id, that.id);
+-    }
+-
+-    @Override
+-    public int hashCode() {
+-        return Objects.hashCode(id);
+-    }
+-
+-    @Override
+-    public String toString() {
+-        return "SimpleFeatureFlag{" +
+-                "id='" + id + '\'' +
+-                '}';
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SimpleFeatureFlagService.java
++++ /dev/null
+@@ -1,259 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonElement;
+-import com.google.gson.JsonObject;
+-import com.google.gson.JsonParseException;
+-import com.google.gson.JsonParser;
+-import com.google.gson.JsonPrimitive;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.math.BigDecimal;
+-import java.net.URI;
+-import java.net.http.HttpRequest;
+-import java.net.http.HttpResponse;
+-import java.time.Duration;
+-import java.util.Map;
+-import java.util.concurrent.CompletableFuture;
+-import java.util.concurrent.ConcurrentHashMap;
+-
+-final class SimpleFeatureFlagService extends SubmissionService implements FeatureFlagService {
+-    private static final Duration DEFAULT_TTL = Duration.ofMinutes(5);
+-    private static final String CHECK_PATH = "/v1/check";
+-    private static final String OPT_IN_PATH = "/v1/opt-in";
+-    private static final String OPT_OUT_PATH = "/v1/opt-out";
+-
+-    private final URI url = getServerUrl("faststats.flags-server", "https://flags.faststats.dev");
+-
+-    private final SimpleContext context;
+-
+-    private final Attributes attributes;
+-    private final Duration ttl;
+-
+-    private final Map<String, CompletableFuture<?>> fetchesInProgress = new ConcurrentHashMap<>();
+-
+-    SimpleFeatureFlagService(
+-            final SimpleContext context,
+-            final Attributes attributes,
+-            final Duration ttl
+-    ) throws IllegalArgumentException {
+-        super(context);
+-        if (ttl.isNegative()) throw new IllegalArgumentException("TTL cannot be negative");
+-        this.attributes = attributes;
+-        this.context = context;
+-        this.ttl = ttl;
+-    }
+-
+-    @SuppressWarnings("unchecked")
+-    <T> CompletableFuture<T> fetch(final SimpleFeatureFlag<T> flag) {
+-        if (!context.isSubmitting()) return CompletableFuture.completedFuture(flag.getDefaultValue());
+-        final var future = new CompletableFuture<T>();
+-        final var existing = fetchesInProgress.putIfAbsent(flag.getId(), future);
+-        if (existing != null) return (CompletableFuture<T>) existing;
+-        createFetch(flag).whenComplete((value, throwable) -> {
+-            fetchesInProgress.remove(flag.getId(), future);
+-            if (throwable != null) future.completeExceptionally(throwable);
+-            else future.complete(value);
+-        });
+-        return future;
+-    }
+-
+-    <T> CompletableFuture<T> optIn(final SimpleFeatureFlag<T> flag) {
+-        return sendOptRequest(flag, OPT_IN_PATH);
+-    }
+-
+-    <T> CompletableFuture<T> optOut(final SimpleFeatureFlag<T> flag) {
+-        return sendOptRequest(flag, OPT_OUT_PATH);
+-    }
+-
+-    private <T> CompletableFuture<T> sendOptRequest(final SimpleFeatureFlag<T> flag, final String path) {
+-        if (!context.isSubmitting()) return CompletableFuture.failedFuture(new IllegalStateException(
+-                "FastStats submission is not active for " + context.getProjectName()
+-        ));
+-        final var requestBody = createRequestBody(flag);
+-        return send(path, requestBody).thenCompose(response -> {
+-            if (isSuccessful(response)) return fetch(flag);
+-            logUnsuccessfulResponse(response);
+-            return CompletableFuture.failedFuture(new IllegalStateException(
+-                    "Feature flag opt request failed with status %s (%s)".formatted(response.statusCode(), response.body())
+-            ));
+-        });
+-    }
+-
+-    private <T> CompletableFuture<T> createFetch(final SimpleFeatureFlag<T> flag) {
+-        final var requestBody = createRequestBody(flag);
+-        final var request = createRequest(CHECK_PATH, requestBody);
+-        logger.info("Fetching %s: %s", request.uri(), requestBody.toString());
+-        return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+-                .thenApply(response -> handleFetchResponse(flag, response));
+-    }
+-
+-    private JsonObject createRequestBody(final SimpleFeatureFlag<?> flag) {
+-        final var requestBody = new JsonObject();
+-        final var attributes = new JsonObject();
+-
+-        requestBody.addProperty("identifier", context.getConfig().serverId().toString());
+-        requestBody.addProperty("key", flag.getId());
+-
+-        this.attributes.forEachPrimitive(attributes::add);
+-        if (flag.attributes() != null) flag.attributes().forEachPrimitive(attributes::add);
+-        if (!attributes.isEmpty()) requestBody.add("attributes", attributes);
+-
+-        return requestBody;
+-    }
+-
+-    private CompletableFuture<HttpResponse<String>> send(final String path, final JsonObject requestBody) {
+-        return HTTP_CLIENT.sendAsync(createRequest(path, requestBody), HttpResponse.BodyHandlers.ofString());
+-    }
+-
+-    private HttpRequest createRequest(final String path, final JsonObject requestBody) {
+-        return HttpRequest.newBuilder()
+-                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
+-                .header("Content-Type", "application/json")
+-                .header("Authorization", "Bearer " + context.getToken())
+-                .timeout(TIMEOUT)
+-                .uri(url.resolve(path))
+-                .build();
+-    }
+-
+-    private <T> T handleFetchResponse(final SimpleFeatureFlag<T> flag, final HttpResponse<String> response) {
+-        try {
+-            if (!isSuccessful(response)) {
+-                logUnsuccessfulResponse(response);
+-                throw new IllegalStateException("Unexpected response status: %s (%s)".formatted(response.statusCode(), response.body()));
+-            }
+-
+-            final var body = JsonParser.parseString(response.body());
+-            final var value = getValue(flag, body);
+-            logger.info("Fetch returned body: %s (value: %s)", body, value);
+-            flag.setLastFetch(System.currentTimeMillis());
+-            flag.setValue(value);
+-            return value;
+-        } catch (final JsonParseException e) {
+-            logger.error("Unexpected response body: %s (%s)", e, response.body(), response.statusCode());
+-            throw new IllegalStateException("Unexpected response body: %s (%s)".formatted(response.body(), response.statusCode()), e);
+-        }
+-    }
+-
+-    @SuppressWarnings("unchecked")
+-    private <T> T getValue(final SimpleFeatureFlag<T> flag, final JsonElement body) {
+-        if (!(body instanceof final JsonObject object)) {
+-            logger.warn("Unexpected JSON response: %s", body);
+-            throw new IllegalStateException("Unexpected JSON response: " + body);
+-        }
+-        if (!(object.get("value") instanceof final JsonPrimitive primitive)) {
+-            logger.warn("Missing or invalid 'value' in JSON response: %s", body);
+-            throw new IllegalStateException("Missing or invalid 'value' in JSON response: " + body);
+-        }
+-
+-        return (T) switch (flag.getType()) {
+-            case STRING -> primitive.getAsString();
+-            case NUMBER -> getAsNumber(primitive);
+-            case BOOLEAN -> getAsBoolean(primitive);
+-        };
+-    }
+-
+-    private Number getAsNumber(final JsonPrimitive primitive) {
+-        try {
+-            if (primitive.isNumber()) return primitive.getAsNumber();
+-            return new BigDecimal(primitive.getAsString());
+-        } catch (final NumberFormatException e) {
+-            logger.warn("Expected a number but got: %s", primitive.getAsString());
+-            throw new IllegalStateException("Expected a number but got: " + primitive.getAsString(), e);
+-        }
+-    }
+-
+-    private boolean getAsBoolean(final JsonPrimitive primitive) {
+-        if (primitive.isBoolean()) return primitive.getAsBoolean();
+-        return switch (primitive.getAsString()) {
+-            case "true" -> true;
+-            case "false" -> false;
+-            default -> {
+-                logger.warn("Expected a boolean but got: %s", primitive.getAsString());
+-                throw new IllegalStateException("Expected a boolean but got: " + primitive.getAsString());
+-            }
+-        };
+-    }
+-
+-    @Override
+-    public FeatureFlag<Boolean> define(final String id, final boolean defaultValue) {
+-        return defineFlag(id, defaultValue, null);
+-    }
+-
+-    @Override
+-    public FeatureFlag<Boolean> define(final String id, final boolean defaultValue, final Attributes attributes) {
+-        return defineFlag(id, defaultValue, attributes);
+-    }
+-
+-    @Override
+-    public FeatureFlag<String> define(final String id, final String defaultValue) {
+-        return defineFlag(id, defaultValue, null);
+-    }
+-
+-    @Override
+-    public FeatureFlag<String> define(final String id, final String defaultValue, final Attributes attributes) {
+-        return defineFlag(id, defaultValue, attributes);
+-    }
+-
+-    @Override
+-    public FeatureFlag<Number> define(final String id, final Number defaultValue) {
+-        return defineFlag(id, defaultValue, null);
+-    }
+-
+-    @Override
+-    public FeatureFlag<Number> define(final String id, final Number defaultValue, final Attributes attributes) {
+-        return defineFlag(id, defaultValue, attributes);
+-    }
+-
+-    private <T> FeatureFlag<T> defineFlag(final String id, final T defaultValue, @Nullable final Attributes attributes) {
+-        return new SimpleFeatureFlag<>(id, defaultValue, attributes, this);
+-    }
+-
+-    @Override
+-    public Attributes getAttributes() {
+-        return attributes;
+-    }
+-
+-    @Override
+-    public Duration getTTL() {
+-        return ttl;
+-    }
+-
+-    public void shutdown() {
+-        fetchesInProgress.values().forEach(fetch -> fetch.cancel(true));
+-        fetchesInProgress.clear();
+-    }
+-
+-    @Override
+-    protected String serverType() {
+-        return "feature flag";
+-    }
+-
+-    static final class Factory implements FeatureFlagService.Factory {
+-        private final SimpleContext context;
+-        private @Nullable Attributes attributes;
+-        private Duration ttl = DEFAULT_TTL;
+-
+-        Factory(final SimpleContext context) {
+-            this.context = context;
+-        }
+-
+-        @Override
+-        public FeatureFlagService.Factory attributes(final Attributes attributes) {
+-            this.attributes = attributes;
+-            return this;
+-        }
+-
+-        @Override
+-        public FeatureFlagService.Factory ttl(final Duration ttl) throws IllegalArgumentException {
+-            if (ttl.isNegative()) throw new IllegalArgumentException("TTL cannot be negative");
+-            this.ttl = ttl;
+-            return this;
+-        }
+-
+-        @Override
+-        public FeatureFlagService create() throws IllegalArgumentException {
+-            final var attributes = this.attributes != null ? this.attributes : Attributes.empty();
+-            return new SimpleFeatureFlagService(context, attributes, ttl);
+-        }
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SimpleMetrics.java
++++ b/core/src/main/java/dev/faststats/SimpleMetrics.java
+@@ -70,7 +70,7 @@
+                 });
+             } catch (final Throwable t) {
+                 logger.error("Failed to append custom metric data: %s", t, metric.getId());
+-                context.errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++                context.trackError(t);
+             }
+         });
+     }
+--- a/core/src/main/java/dev/faststats/SimpleTrackedError.java
++++ /dev/null
+@@ -1,111 +0,0 @@
+-package dev.faststats;
+-
+-import org.jetbrains.annotations.Contract;
+-import org.jspecify.annotations.Nullable;
+-
+-import java.util.Arrays;
+-import java.util.Collections;
+-import java.util.IdentityHashMap;
+-import java.util.Objects;
+-import java.util.Set;
+-
+-final class SimpleTrackedError implements TrackedError {
+-    private volatile Attributes attributes = Attributes.empty();
+-    private volatile boolean handled = true;
+-    private final ThrowableSnapshot error;
+-
+-    SimpleTrackedError(final Throwable error) {
+-        this.error = snapshot(error, null);
+-    }
+-
+-    @Contract("_, null -> !null")
+-    private static @Nullable ThrowableSnapshot snapshot(final Throwable error, @Nullable Set<Throwable> visited) {
+-        final var message = error.getMessage();
+-        final var stackTrace = error.getStackTrace();
+-        if (error.getCause() != null && visited == null)
+-            visited = Collections.newSetFromMap(new IdentityHashMap<>());
+-        if (visited != null && !visited.add(error)) return null;
+-        final var cause = error.getCause() != null
+-                ? snapshot(error.getCause(), visited)
+-                : null;
+-        final var trace = stackTrace.length == 0 ? new Throwable().getStackTrace() : stackTrace;
+-        return new SimpleThrowableSnapshot(error.getClass(), message, cause, trace);
+-    }
+-
+-    record SimpleThrowableSnapshot(
+-            Class<?> type,
+-            @Nullable String message,
+-            @Nullable ThrowableSnapshot cause,
+-            StackTraceElement... stackTraces
+-    ) implements ThrowableSnapshot {
+-        @Override
+-        public StackTraceElement[] stackTraces() {
+-            return stackTraces.clone();
+-        }
+-
+-        @Override
+-        public boolean equals(@Nullable final Object o) {
+-            if (o == null || getClass() != o.getClass()) return false;
+-            final SimpleThrowableSnapshot that = (SimpleThrowableSnapshot) o;
+-            return Objects.equals(type, that.type)
+-                    && Objects.equals(message, that.message)
+-                    && Objects.equals(cause, that.cause)
+-                    && Objects.deepEquals(stackTraces, that.stackTraces);
+-        }
+-
+-        @Override
+-        public int hashCode() {
+-            return Objects.hash(type, message, cause, Arrays.hashCode(stackTraces));
+-        }
+-    }
+-
+-    @Override
+-    public ThrowableSnapshot error() {
+-        return error;
+-    }
+-
+-    @Override
+-    public boolean handled() {
+-        return handled;
+-    }
+-
+-    @Override
+-    public TrackedError handled(final boolean handled) {
+-        this.handled = handled;
+-        return this;
+-    }
+-
+-    @Override
+-    public Attributes attributes() {
+-        return Attributes.copyOf(attributes);
+-    }
+-
+-    @Override
+-    public TrackedError attributes(final Attributes attributes) {
+-        this.attributes = Attributes.copyOf(attributes);
+-        return this;
+-    }
+-
+-    @Override
+-    public boolean equals(@Nullable final Object o) {
+-        if (o == null || getClass() != o.getClass()) return false;
+-        final SimpleTrackedError that = (SimpleTrackedError) o;
+-        return handled == that.handled
+-                && Objects.equals(attributes, that.attributes)
+-                && Objects.equals(error, that.error);
+-    }
+-
+-    @Override
+-    public int hashCode() {
+-        return Objects.hash(attributes, handled, error);
+-    }
+-
+-    @Override
+-    public String toString() {
+-        return "SimpleTrackedError{" +
+-                "attributes=" + attributes +
+-                ", handled=" + handled +
+-                ", error=" + error +
+-                '}';
+-    }
+-}
+--- a/core/src/main/java/dev/faststats/SubmissionService.java
++++ b/core/src/main/java/dev/faststats/SubmissionService.java
+@@ -18,9 +18,9 @@
+ 
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+-abstract class SubmissionService {
++public abstract class SubmissionService {
+     protected static final Duration TIMEOUT = Duration.ofSeconds(3);
+-    protected static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
++    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+             .connectTimeout(TIMEOUT)
+             .version(HttpClient.Version.HTTP_1_1)
+             .build();
+@@ -28,7 +28,7 @@
+     protected final Logger logger;
+     protected final SimpleContext context;
+ 
+-    SubmissionService(final SimpleContext context) {
++    protected SubmissionService(final SimpleContext context) {
+         this.context = context;
+         this.logger = context.getLoggerFactory().getLogger(getClass());
+     }
+@@ -97,12 +97,12 @@
+         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+     }
+ 
+-    protected static boolean isSuccessful(final HttpResponse<?> response) {
++    private static boolean isSuccessful(final HttpResponse<?> response) {
+         final var statusCode = response.statusCode();
+         return statusCode >= 200 && statusCode < 300;
+     }
+ 
+-    protected void logUnsuccessfulResponse(final HttpResponse<?> response) {
++    private void logUnsuccessfulResponse(final HttpResponse<?> response) {
+         final var statusCode = response.statusCode();
+         final var body = response.body();
+ 
+--- a/core/src/main/java/dev/faststats/TrackedError.java
++++ /dev/null
+@@ -1,96 +0,0 @@
+-package dev.faststats;
+-
+-import org.jetbrains.annotations.Contract;
+-import org.jspecify.annotations.Nullable;
+-
+-/**
+- * An error report with tracking metadata.
+- *
+- * @since 0.24.0
+- */
+-public sealed interface TrackedError permits SimpleTrackedError {
+-    /**
+-     * Returns a snapshot of the tracked error.
+-     *
+-     * @return a snapshot of the tracked error
+-     * @since 0.30.0
+-     */
+-    @Contract(pure = true)
+-    ThrowableSnapshot error();
+-
+-    /**
+-     * A snapshot of a {@link Throwable} captured when an error is tracked.
+-     * <p>
+-     * The snapshot preserves the throwable's type, message, cause chain, and stack trace
+-     * without retaining the original throwable.
+-     *
+-     * @since 0.30.0
+-     */
+-    sealed interface ThrowableSnapshot permits SimpleTrackedError.SimpleThrowableSnapshot {
+-        /**
+-         * Returns the throwable class.
+-         *
+-         * @return the throwable class
+-         */
+-        Class<?> type();
+-
+-        /**
+-         * Returns the throwable message.
+-         *
+-         * @return the throwable message, or {@code null} if none was provided
+-         */
+-        @Nullable String message();
+-
+-        /**
+-         * Returns a snapshot of the throwable's cause.
+-         *
+-         * @return a snapshot of the throwable's cause, or {@code null} if it has no cause
+-         */
+-        @Nullable ThrowableSnapshot cause();
+-
+-        /**
+-         * Returns a copy of the throwable's stack trace elements.
+-         *
+-         * @return a copy of the throwable's stack trace elements
+-         */
+-        StackTraceElement[] stackTraces();
+-    }
+-
+-    /**
+-     * Returns whether the error was handled.
+-     *
+-     * @return whether the error was handled
+-     * @since 0.24.0
+-     */
+-    @Contract(pure = true)
+-    boolean handled();
+-
+-    /**
+-     * Sets whether the error was handled.
+-     *
+-     * @param handled whether the error was handled
+-     * @return this tracked error
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    TrackedError handled(boolean handled);
+-
+-    /**
+-     * Returns a copy of the additional error attributes.
+-     *
+-     * @return a copy of the additional error attributes
+-     * @since 0.24.0
+-     */
+-    @Contract(value = " -> new", pure = true)
+-    Attributes attributes();
+-
+-    /**
+-     * Sets the additional error attributes.
+-     *
+-     * @param attributes the additional error attributes
+-     * @return this tracked error
+-     * @since 0.24.0
+-     */
+-    @Contract(value = "_ -> this", mutates = "this")
+-    TrackedError attributes(Attributes attributes);
+-}
+--- a/core/src/test/java/dev/faststats/AnonymizationTest.java
++++ /dev/null
+@@ -1,191 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonObject;
+-import org.junit.jupiter.api.Test;
+-import org.junit.jupiter.params.ParameterizedTest;
+-import org.junit.jupiter.params.provider.ValueSource;
+-
+-import java.util.regex.Pattern;
+-
+-import static org.junit.jupiter.api.Assertions.assertEquals;
+-import static org.junit.jupiter.api.Assertions.assertFalse;
+-import static org.junit.jupiter.api.Assertions.assertTrue;
+-
+-public final class AnonymizationTest {
+-    private final SimpleErrorTracker tracker = (SimpleErrorTracker) ErrorTracker.contextUnaware();
+-    private final FastStatsContext context = new MockContext.Factory()
+-            .errorTrackerService(tracker)
+-            .metrics(Metrics.Factory::create)
+-            .create();
+-
+-    private JsonObject getError() {
+-        return tracker.getFullData().get(0).getAsJsonObject();
+-    }
+-
+-    private String getErrorMessage() {
+-        return getError().get("message").getAsString();
+-    }
+-
+-    @Test
+-    public void ipv4Anonymization() {
+-        tracker.trackError("Connection refused at 192.168.1.100");
+-        assertEquals("Connection refused at [IP hidden]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void ipv6Anonymization() {
+-        tracker.trackError("Failed to connect to f833:be65:65da:975b:4896:88f7:6964:44c0");
+-        assertEquals("Failed to connect to [IP hidden]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void userHomePathAnonymization() {
+-        final var username = System.getProperty("user.name", "user");
+-        tracker.trackError("File not found: /home/" + username + "/config.yml");
+-        assertEquals("File not found: /home/[username hidden]/config.yml", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void windowsUserPathAnonymization() {
+-        final var username = System.getProperty("user.name", "user");
+-        tracker.trackError("File not found: C:\\Users\\" + username + "\\config.yml");
+-        assertEquals("File not found: C:\\Users\\[username hidden]\\config.yml", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void macUserPathAnonymization() {
+-        final var username = System.getProperty("user.name", "user");
+-        tracker.trackError("File not found: /Users/" + username + "/config.yml");
+-        assertEquals("File not found: /Users/[username hidden]/config.yml", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void usernameAnonymizationIsCaseInsensitive() {
+-        final var username = System.getProperty("user.name", "user");
+-        tracker.trackError("Error for " + swapCase(username));
+-        assertEquals("Error for [username hidden]", getErrorMessage());
+-    }
+-
+-    @ParameterizedTest
+-    @ValueSource(strings = {
+-            "https://discord.com/api/webhooks",
+-            "https://discord.com/api/v10/webhooks",
+-            "https://canary.discord.com/api/webhooks",
+-            "https://ptb.discord.com/api/webhooks",
+-            "https://discordapp.com/api/webhooks"
+-    })
+-    public void discordWebhookAnonymization(final String webhookBaseUrl) {
+-        final var webhookUrl = webhookBaseUrl + "/1234567890987654321/aAaAaAaa0AAaAAaaaAAAAa_0AAAAAAAaaaAaaAaaAAAA0aA00AAA0AAA0aAAaA0a0a0A";
+-        tracker.trackError("Webhook failed: " + webhookUrl + "?wait=true");
+-        assertEquals("Webhook failed: " + webhookBaseUrl + "/[id hidden]/[token hidden]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void jdbcUrlAnonymization() {
+-        tracker.trackError("Failed: jdbc:mysql://localhost:3306:secretpass@mydb");
+-        assertEquals("Failed: jdbc:mysql://localhost:3306:[password hidden]@mydb", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void jdbcUrlNoPortAnonymization() {
+-        tracker.trackError("Failed: jdbc:mysql://mydb.com:secretpass@mydb");
+-        assertEquals("Failed: jdbc:mysql://mydb.com:[password hidden]@mydb", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void jdbcUrlIpAnonymization() {
+-        tracker.trackError("Failed: jdbc:mysql://127.0.0.1:3306:secretpass@mydb");
+-        assertEquals("Failed: jdbc:mysql://[IP hidden]:3306:[password hidden]@mydb", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void customPatternAnonymizesMessage() {
+-        tracker.anonymize("token=[^&]+", "token=[redacted]");
+-        tracker.trackError("Request failed with token=abc123secret&user=test");
+-        assertEquals("Request failed with token=[redacted]&user=test", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void customPatternWithCompiledPattern() {
+-        tracker.anonymize(Pattern.compile("Bearer [A-Za-z0-9._~+/=-]+"), "Bearer [redacted]");
+-        tracker.trackError("Auth failed: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature");
+-        assertEquals("Auth failed: Bearer [redacted]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void customPatternWithCaptureGroupReplacement() {
+-        tracker.anonymize("(api_key=)[^&\\s]+", "$1[redacted]");
+-        tracker.trackError("GET /data?api_key=sk_live_12345&format=json failed");
+-        assertEquals("GET /data?api_key=[redacted]&format=json failed", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void multipleCustomPatterns() {
+-        tracker.anonymize("Bearer [A-Za-z0-9._~+/=-]+", "Bearer [redacted]")
+-                .anonymize("[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}", "[email hidden]");
+-        tracker.trackError("Auth failed for user@example.com with Bearer eyJ0eXAi");
+-        assertEquals("Auth failed for [email hidden] with Bearer [redacted]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void customPatternChaining() {
+-        tracker.anonymize("secret-[a-z]+", "[secret hidden]")
+-                .anonymize("AKIA[0-9A-Z]{16}", "[aws-key hidden]");
+-        tracker.trackError("Credentials: secret-abcdef / AKIA1234567890ABCDEF");
+-        assertEquals("Credentials: [secret hidden] / [aws-key hidden]", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void customPatternAppliedToCauseChain() {
+-        final var tracker = this.tracker.anonymize("ssn=\\d{3}-\\d{2}-\\d{4}", "ssn=[redacted]");
+-        final var cause = new IllegalArgumentException("Validation failed for ssn=123-45-6789");
+-        tracker.trackError(new RuntimeException("Processing error", cause));
+-        final var error = getError();
+-        final var stack = error.getAsJsonArray("stack");
+-        var causeAnonymized = false;
+-        for (final var element : stack) {
+-            final var line = element.getAsString();
+-            assertFalse(line.contains("123-45-6789"));
+-            if (line.startsWith("Caused by:") && line.contains("ssn=[redacted]")) causeAnonymized = true;
+-        }
+-        assertTrue(causeAnonymized);
+-    }
+-
+-    @Test
+-    public void nullMessageNotAffected() {
+-        tracker.anonymize("anything", "[redacted]");
+-        tracker.trackError(new RuntimeException((String) null));
+-        assertFalse(getError().has("message"));
+-    }
+-
+-    @Test
+-    public void customAndBuiltInPatternsCombined() {
+-        tracker.anonymize("session=[a-f0-9]+", "session=[redacted]");
+-        final var username = System.getProperty("user.name", "user");
+-        tracker.trackError("Error for 192.168.1.1 with session=deadbeef01 at /home/" + username + "/app");
+-        assertEquals("Error for [IP hidden] with session=[redacted] at /home/[username hidden]/app", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void emptyReplacementRemovesMatch() {
+-        tracker.anonymize("\\(internal ref: [^)]+\\)", "");
+-        tracker.trackError("Request failed (internal ref: REF-98765)");
+-        assertEquals("Request failed ", getErrorMessage());
+-    }
+-
+-    @Test
+-    public void patternDoesNotMatchLeavesMessageUnchanged() {
+-        tracker.anonymize("SECRET_[A-Z]+", "[redacted]");
+-        tracker.trackError("just a normal error");
+-        assertEquals("just a normal error", getErrorMessage());
+-    }
+-
+-    private static String swapCase(final String value) {
+-        final var builder = new StringBuilder(value.length());
+-        for (var i = 0; i < value.length(); i++) {
+-            final var c = value.charAt(i);
+-            builder.append(Character.isUpperCase(c) ? Character.toLowerCase(c) : Character.toUpperCase(c));
+-        }
+-        return builder.toString();
+-    }
+-}
+--- a/core/src/test/java/dev/faststats/ErrorReportContextTest.java
++++ /dev/null
+@@ -1,33 +0,0 @@
+-package dev.faststats;
+-
+-import org.junit.jupiter.api.Test;
+-
+-import static org.junit.jupiter.api.Assertions.assertEquals;
+-import static org.junit.jupiter.api.Assertions.assertNotNull;
+-import static org.junit.jupiter.api.Assertions.assertTrue;
+-
+-public class ErrorReportContextTest {
+-    @Test
+-    public void platformDataIsReportedWithoutMetrics() {
+-        final var tracker = (SimpleErrorTracker) ErrorTracker.contextUnaware();
+-        final var context = new MockContext.Factory()
+-                .defaultMetrics((ctx, data) -> data.addProperty("server_type", "Paper"))
+-                .errorTrackerService(tracker)
+-                .create();
+-        try {
+-            assertTrue(context.metrics().isEmpty());
+-            tracker.trackError("boom");
+-
+-            final var service = (SimpleErrorTrackerService) context.errorTrackerService().orElseThrow();
+-            final var data = service.createData();
+-            assertNotNull(data);
+-
+-            final var reportContext = data.getAsJsonObject("context");
+-            assertEquals("Paper", reportContext.get("server_type").getAsString());
+-            assertTrue(reportContext.has("java_version"));
+-            assertTrue(reportContext.has("os_name"));
+-        } finally {
+-            context.shutdown();
+-        }
+-    }
+-}
+--- a/core/src/test/java/dev/faststats/ErrorTrackerTest.java
++++ /dev/null
+@@ -1,566 +0,0 @@
+-package dev.faststats;
+-
+-import org.jspecify.annotations.Nullable;
+-import org.junit.jupiter.api.Test;
+-
+-import java.io.IOException;
+-import java.net.URL;
+-import java.net.URLClassLoader;
+-import java.util.concurrent.CountDownLatch;
+-import java.util.concurrent.TimeUnit;
+-import java.util.concurrent.atomic.AtomicReference;
+-import java.util.function.Supplier;
+-
+-import static org.junit.jupiter.api.Assertions.assertEquals;
+-import static org.junit.jupiter.api.Assertions.assertFalse;
+-import static org.junit.jupiter.api.Assertions.assertNotNull;
+-import static org.junit.jupiter.api.Assertions.assertNull;
+-import static org.junit.jupiter.api.Assertions.assertTrue;
+-
+-public class ErrorTrackerTest {
+-    private final SimpleErrorTracker tracker = (SimpleErrorTracker) ErrorTracker.contextUnaware();
+-    private final SimpleContext context = new MockContext.Factory()
+-            .errorTrackerService(tracker)
+-            .create();
+-
+-    @Test
+-    public void sameClassLoader() {
+-        final var loader = getClass().getClassLoader();
+-        final var error = new RuntimeException("test");
+-        assertTrue(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    @Test
+-    public void childLoaderMatchesParentLoader() {
+-        final var parentLoader = getClass().getClassLoader();
+-        final var childLoader = new URLClassLoader(new URL[0], parentLoader);
+-
+-        final var errorFromParent = new RuntimeException("test from parent");
+-        assertTrue(ErrorTracker.isSameLoader(parentLoader, errorFromParent));
+-        assertFalse(ErrorTracker.isSameLoader(childLoader, errorFromParent));
+-    }
+-
+-    @Test
+-    public void differentClassLoader() {
+-        final var isolatedLoader = new URLClassLoader(new URL[0], null);
+-        final var error = new RuntimeException("test");
+-
+-        assertFalse(ErrorTracker.isSameLoader(isolatedLoader, error));
+-    }
+-
+-    @Test
+-    public void classLoaderHierarchyMatching() {
+-        final var mainLoader = getClass().getClassLoader();
+-        final var submissionsLoader = new URLClassLoader(new URL[0], mainLoader);
+-        final var virtualLoader = new URLClassLoader(new URL[0], mainLoader);
+-        final var netLoader = new URLClassLoader(new URL[0], submissionsLoader);
+-
+-        final var errorFromMain = new RuntimeException("from main");
+-
+-        assertTrue(ErrorTracker.isSameLoader(mainLoader, errorFromMain));
+-        assertFalse(ErrorTracker.isSameLoader(submissionsLoader, errorFromMain));
+-        assertFalse(ErrorTracker.isSameLoader(virtualLoader, errorFromMain));
+-        assertFalse(ErrorTracker.isSameLoader(netLoader, errorFromMain));
+-
+-        final var isolatedLoader = new URLClassLoader(new URL[0], null);
+-        assertFalse(ErrorTracker.isSameLoader(isolatedLoader, errorFromMain));
+-    }
+-
+-    @Test
+-    public void siblingLoadersDoNotMatch() {
+-        final var mainLoader = getClass().getClassLoader();
+-        final var submissionsLoader = new URLClassLoader(new URL[0], mainLoader);
+-        final var virtualLoader = new URLClassLoader(new URL[0], mainLoader);
+-        final var netLoader = new URLClassLoader(new URL[0], submissionsLoader);
+-
+-        final var errorFromSubmissions = createErrorWithStackFrom("submissions.Plugin");
+-        final var errorFromVirtual = createErrorWithStackFrom("virtual.Handler");
+-        final var errorFromNet = createErrorWithStackFrom("net.Connection");
+-
+-        assertFalse(ErrorTracker.isSameLoader(virtualLoader, errorFromSubmissions));
+-        assertFalse(ErrorTracker.isSameLoader(submissionsLoader, errorFromVirtual));
+-        assertFalse(ErrorTracker.isSameLoader(virtualLoader, errorFromNet));
+-    }
+-
+-    private RuntimeException createErrorWithStackFrom(final String className) {
+-        final var error = new RuntimeException("test");
+-        error.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement(className, "test", "Test.java", 1)
+-        });
+-        return error;
+-    }
+-
+-    @Test
+-    public void nestedCauseSameLoader() {
+-        final var loader = getClass().getClassLoader();
+-        final var cause = new IllegalArgumentException("cause");
+-        final var error = new RuntimeException("wrapper", cause);
+-
+-        assertTrue(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    @Test
+-    public void emptyStackTrace() {
+-        final var loader = getClass().getClassLoader();
+-        final var error = new RuntimeException("no stack");
+-        error.setStackTrace(new StackTraceElement[0]);
+-
+-        assertFalse(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    @Test
+-    public void emptyStackTraceChecksCause() {
+-        final var loader = getClass().getClassLoader();
+-        final var cause = createExceptionWithStack();
+-        final var error = new RuntimeException("no stack", cause);
+-        error.setStackTrace(new StackTraceElement[0]);
+-
+-        assertTrue(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    @Test
+-    public void libraryOnlyStackFallsThroughToCause() {
+-        final var loader = getClass().getClassLoader();
+-        final var cause = createExceptionWithStack();
+-        final var error = new RuntimeException("library only", cause);
+-        error.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("java.lang.String", "valueOf", "String.java", 100)
+-        });
+-
+-        assertTrue(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    private IllegalArgumentException createExceptionWithStack() {
+-        return new IllegalArgumentException("cause with stack");
+-    }
+-
+-    @Test
+-    public void redactsBuiltInSensitiveValuesFromMessageAndStackHeader() {
+-        tracker.trackError("connect jdbc:postgresql://localhost:5432/secret@db from 192.168.1.20");
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        final var message = report.get("message").getAsString();
+-        final var header = report.getAsJsonArray("stack").get(0).getAsString();
+-
+-        assertEquals("connect jdbc:postgresql://localhost:[password hidden]@db from [IP hidden]", message);
+-        assertEquals("java.lang.RuntimeException: " + message, header);
+-    }
+-
+-    @Test
+-    public void appliesCustomRedactionAfterBuiltInRedaction() {
+-        tracker.anonymize("session=[^ ]+", "session=[hidden]");
+-        tracker.trackError("failed with session=abc123 from 10.0.0.1");
+-
+-        final var message = tracker.getFullData()
+-                .get(0)
+-                .getAsJsonObject()
+-                .get("message")
+-                .getAsString();
+-
+-        assertEquals("failed with session=[hidden] from [IP hidden]", message);
+-    }
+-
+-    @Test
+-    public void nullMessagesAreNotSerializedAsMessageProperty() {
+-        tracker.trackError(new RuntimeException((String) null));
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        assertFalse(report.has("message"));
+-        assertEquals("java.lang.RuntimeException", report.getAsJsonArray("stack").get(0).getAsString());
+-    }
+-
+-    @Test
+-    public void messageFallsBackToCauseMessage() {
+-        final var cause = new IllegalArgumentException("cause message");
+-        final var error = new RuntimeException(null, cause);
+-
+-        tracker.trackError(error);
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        final var stack = report.getAsJsonArray("stack");
+-        assertEquals("cause message", report.get("message").getAsString());
+-    }
+-
+-    @Test
+-    public void nestedCausesAreSerializedInOrder() {
+-        final var root = new IllegalArgumentException("root secret 172.16.0.9");
+-        root.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Root", "fail", "Root.java", 10)
+-        });
+-        final var middle = new IllegalStateException("middle", root);
+-        middle.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Middle", "call", "Middle.java", 20),
+-                new StackTraceElement("example.Root", "fail", "Root.java", 10)
+-        });
+-        final var top = new RuntimeException("top", middle);
+-        top.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Top", "run", "Top.java", 30),
+-                new StackTraceElement("example.Middle", "call", "Middle.java", 20),
+-                new StackTraceElement("example.Root", "fail", "Root.java", 10)
+-        });
+-
+-        tracker.trackError(top).handled(false);
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        final var stack = report.getAsJsonArray("stack");
+-
+-        assertEquals(RuntimeException.class.getName(), report.get("error").getAsString());
+-        assertFalse(report.get("handled").getAsBoolean());
+-        assertEquals("java.lang.RuntimeException: top", stack.get(0).getAsString());
+-        assertEquals("  at example.Top.run(Top.java:30)", stack.get(1).getAsString());
+-        assertEquals("  at example.Middle.call(Middle.java:20)", stack.get(2).getAsString());
+-        assertEquals("  at example.Root.fail(Root.java:10)", stack.get(3).getAsString());
+-        assertEquals("Caused by: java.lang.IllegalStateException: middle", stack.get(4).getAsString());
+-        assertEquals("  ... 2 more", stack.get(5).getAsString());
+-        assertEquals("Caused by: java.lang.IllegalArgumentException: root secret [IP hidden]", stack.get(6).getAsString());
+-    }
+-
+-    @Test
+-    public void cyclicCauseChainStopsAfterFirstVisit() {
+-        final var first = new RuntimeException("first");
+-        final var second = new IllegalStateException("second", first);
+-        first.initCause(second);
+-
+-        tracker.trackError(first);
+-
+-        final var stack = tracker.getFullData().get(0).getAsJsonObject().getAsJsonArray("stack");
+-        var firstCauseCount = 0;
+-        var secondCauseCount = 0;
+-        for (final var element : stack) {
+-            final var line = element.getAsString();
+-            if (line.equals("java.lang.RuntimeException: first")) firstCauseCount++;
+-            if (line.equals("Caused by: java.lang.IllegalStateException: second")) secondCauseCount++;
+-        }
+-
+-        assertEquals(1, firstCauseCount);
+-        assertEquals(1, secondCauseCount);
+-    }
+-
+-    @Test
+-    public void noEmptyTraces() {
+-        final var oom = new OutOfMemoryError();
+-        oom.setStackTrace(new StackTraceElement[0]);
+-
+-        tracker.trackError(oom);
+-
+-        final var stack = tracker.getFullData().get(0).getAsJsonObject().getAsJsonArray("stack");
+-        assertFalse(stack.isEmpty(), "Tracked error must always have a stacktrace");
+-    }
+-
+-    @Test
+-    public void duplicateErrorsAreAggregatedWithCount() {
+-        final var first = createStableError();
+-        final var second = createStableError();
+-
+-        tracker.trackError(first);
+-        tracker.trackError(second);
+-
+-        final var reports = tracker.getFullData();
+-        final var report = reports.get(0).getAsJsonObject();
+-
+-        assertEquals(1, reports.size());
+-        assertEquals(2, report.get("count").getAsInt());
+-        assertEquals("duplicate", report.get("message").getAsString());
+-    }
+-
+-    @Test
+-    public void clearKeepsDuplicateCountButRemovesPayloadUntilRepeated() {
+-        tracker.trackError(createStableError());
+-        tracker.trackError(createStableError());
+-
+-        tracker.clear();
+-
+-        assertEquals(0, tracker.getFullData().size());
+-
+-        tracker.trackError(createStableError());
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        assertEquals("duplicate", report.get("message").getAsString());
+-        assertNull(report.get("count"));
+-    }
+-
+-    @Test
+-    public void ignoredNestedCauseSuppressesWholeReport() {
+-        tracker.ignoreError(IllegalArgumentException.class, "ignore me");
+-
+-        tracker.trackError(new RuntimeException("wrapper", new IllegalArgumentException("ignore me")));
+-
+-        assertEquals(0, tracker.getFullData().size());
+-    }
+-
+-    @Test
+-    public void repeatingStackFramesAreCollapsed() {
+-        final var error = new StackOverflowError("recursive");
+-        error.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Recursive", "a", "Recursive.java", 1),
+-                new StackTraceElement("example.Recursive", "b", "Recursive.java", 2),
+-                new StackTraceElement("example.Recursive", "a", "Recursive.java", 1),
+-                new StackTraceElement("example.Recursive", "b", "Recursive.java", 2),
+-                new StackTraceElement("example.Recursive", "a", "Recursive.java", 1),
+-                new StackTraceElement("example.Recursive", "b", "Recursive.java", 2)
+-        });
+-
+-        tracker.trackError(error);
+-
+-        final var stack = tracker.getFullData().get(0).getAsJsonObject().getAsJsonArray("stack");
+-        assertEquals("java.lang.StackOverflowError: recursive", stack.get(0).getAsString());
+-        assertEquals("  at example.Recursive.a(Recursive.java:1)", stack.get(1).getAsString());
+-        assertEquals("  at example.Recursive.b(Recursive.java:2)", stack.get(2).getAsString());
+-        assertEquals("  ... 4 more", stack.get(3).getAsString());
+-        assertEquals(4, stack.size());
+-    }
+-
+-    @Test
+-    public void longMessagesAreTruncatedBeforeSerialization() {
+-        final var message = "a".repeat(ErrorHelper.MAX_MESSAGE_LENGTH * 2);
+-
+-        tracker.trackError(message);
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        final var serialized = report.get("message").getAsString();
+-        assertEquals(ErrorHelper.MAX_MESSAGE_LENGTH + 3, serialized.length());
+-        assertTrue(serialized.endsWith("..."));
+-        assertEquals("java.lang.RuntimeException: " + serialized, report.getAsJsonArray("stack").get(0).getAsString());
+-    }
+-
+-    @Test
+-    public void attachedContextTracksUnhandledThreadError() throws InterruptedException {
+-        final var handled = new CountDownLatch(1);
+-        final var thrown = new RuntimeException("async failure");
+-        thrown.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Async", "run", "Async.java", 7)
+-        });
+-
+-        tracker.setContextErrorHandler((loader, error) -> handled.countDown());
+-        tracker.attachErrorContext(null);
+-        try {
+-            final var thread = new Thread(() -> {
+-                throw thrown;
+-            });
+-            thread.start();
+-            thread.join(1000);
+-
+-            assertTrue(handled.await(1, TimeUnit.SECONDS));
+-            final var report = tracker.getFullData().get(0).getAsJsonObject();
+-            assertEquals("async failure", report.get("message").getAsString());
+-            assertFalse(report.get("handled").getAsBoolean());
+-        } finally {
+-            tracker.detachErrorContext();
+-        }
+-    }
+-
+-    @Test
+-    public void threadContextLoaderOnSameChainMatches() {
+-        final var loader = getClass().getClassLoader();
+-        final var childLoader = new URLClassLoader(new URL[0], loader);
+-        final var error = new RuntimeException("test");
+-        final var thread = new Thread(() -> {
+-        });
+-
+-        thread.setContextClassLoader(loader);
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-
+-        thread.setContextClassLoader(loader.getParent());
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-
+-        thread.setContextClassLoader(childLoader);
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-
+-        thread.setContextClassLoader(null);
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-    }
+-
+-    @Test
+-    public void unrelatedThreadContextLoaderDoesNotMatch() {
+-        final var loader = getClass().getClassLoader();
+-        final var error = new RuntimeException("test");
+-        final var thread = new Thread(() -> {
+-        });
+-
+-        thread.setContextClassLoader(new URLClassLoader(new URL[0], null));
+-        assertFalse(ErrorTracker.isSameLoader(thread, loader, error));
+-        assertTrue(ErrorTracker.isSameLoader(loader, error));
+-    }
+-
+-    @Test
+-    public void defaultThreadContextLoadersMatch() throws ClassNotFoundException {
+-        final var className = PlatformLoaded.class.getName();
+-        final var loader = definingLoader(ClassLoader.getPlatformClassLoader(), className);
+-        loader.loadClass(className);
+-        final var error = createErrorWithStackFrom(className);
+-        final var thread = new Thread(() -> {
+-        });
+-
+-        thread.setContextClassLoader(ClassLoader.getSystemClassLoader());
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-
+-        thread.setContextClassLoader(ClassLoader.getPlatformClassLoader());
+-        assertTrue(ErrorTracker.isSameLoader(thread, loader, error));
+-
+-        thread.setContextClassLoader(new URLClassLoader(new URL[0], ClassLoader.getSystemClassLoader()));
+-        assertFalse(ErrorTracker.isSameLoader(thread, loader, error));
+-    }
+-
+-    public static final class PlatformLoaded {
+-    }
+-
+-    @Test
+-    public void contextExclusionRulesExcludeErrorsFromTrackedLoader() throws InterruptedException {
+-        final var loader = getClass().getClassLoader();
+-        final var tracked = createErrorWithStackFrom(ErrorTrackerTest.class.getName());
+-        final var excluded = createErrorWithStackFrom(MockContext.class.getName());
+-        final var foreign = createErrorWithStackFrom("example.Foreign");
+-
+-        final var excludedThread = new AtomicReference<@Nullable Thread>();
+-        final var tracker = (SimpleErrorTracker) ErrorTracker.contextAware(loader)
+-                .addExclusionRule((thread, error) -> error.getStackTrace()[0].getClassName().equals(MockContext.class.getName()))
+-                .addExclusionRule((thread, error) -> thread == excludedThread.get());
+-        try {
+-            for (final var error : new RuntimeException[]{tracked, excluded, foreign}) {
+-                final var thread = new Thread(() -> {
+-                    throw error;
+-                });
+-                thread.start();
+-                thread.join(1000);
+-            }
+-
+-            final var trackedOnExcludedThread = createErrorWithStackFrom(ErrorTrackerTest.class.getName());
+-            final var thread = new Thread(() -> {
+-                throw trackedOnExcludedThread;
+-            });
+-            excludedThread.set(thread);
+-            thread.start();
+-            thread.join(1000);
+-
+-            final var reports = tracker.getFullData();
+-            assertEquals(1, reports.size());
+-            final var stack = reports.get(0).getAsJsonObject().getAsJsonArray("stack");
+-            assertEquals("  at " + ErrorTrackerTest.class.getName() + ".test(Test.java:1)", stack.get(1).getAsString());
+-        } finally {
+-            tracker.detachErrorContext();
+-        }
+-    }
+-
+-    @Test
+-    public void contextAwareResolvesCallerClassLoader() throws Exception {
+-        final var callerName = ContextAwareCaller.class.getName();
+-        final var callerLoader = definingLoader(getClass().getClassLoader(), callerName);
+-
+-        @SuppressWarnings("unchecked") final var caller = (Supplier<ErrorTracker>) callerLoader
+-                .loadClass(callerName).getDeclaredConstructor().newInstance();
+-        final var tracker = (SimpleErrorTracker) caller.get();
+-        try {
+-            assertEquals(callerLoader, tracker.attachedLoader());
+-        } finally {
+-            tracker.detachErrorContext();
+-        }
+-    }
+-
+-    private ClassLoader definingLoader(final ClassLoader parent, final String className) {
+-        final var source = getClass().getClassLoader();
+-        return new ClassLoader(parent) {
+-            @Override
+-            protected Class<?> loadClass(final String name, final boolean resolve) throws ClassNotFoundException {
+-                if (!name.equals(className)) return super.loadClass(name, resolve);
+-                synchronized (getClassLoadingLock(name)) {
+-                    final var loaded = findLoadedClass(name);
+-                    if (loaded != null) return loaded;
+-                    try (final var stream = source.getResourceAsStream(name.replace('.', '/') + ".class")) {
+-                        final var bytes = stream.readAllBytes();
+-                        return defineClass(name, bytes, 0, bytes.length);
+-                    } catch (final IOException e) {
+-                        throw new ClassNotFoundException(name, e);
+-                    }
+-                }
+-            }
+-        };
+-    }
+-
+-    public static final class ContextAwareCaller implements Supplier<ErrorTracker> {
+-        @Override
+-        public ErrorTracker get() {
+-            return ErrorTracker.contextAware();
+-        }
+-    }
+-
+-    @Test
+-    public void trackedErrorSerializesProperties() {
+-        final var tracker = (SimpleErrorTracker) ErrorTracker.contextUnaware();
+-        final var error = tracker.trackError("with properties");
+-        error.attributes(Attributes.empty()
+-                .put("stage", "startup")
+-                .put("attempt", 2)
+-                .put("retrying", true));
+-
+-        final var report = tracker.getFullData().get(0).getAsJsonObject();
+-        final var context = report.getAsJsonObject("context");
+-
+-        assertTrue(report.get("handled").getAsBoolean());
+-        assertEquals("startup", context.get("stage").getAsString());
+-        assertEquals(2, context.get("attempt").getAsInt());
+-        assertTrue(context.get("retrying").getAsBoolean());
+-    }
+-
+-    @Test
+-    public void errorTrackerServiceSerializesGlobalAttributes() {
+-        final var tracker = ErrorTracker.contextUnaware();
+-        final var context = new MockContext.Factory()
+-                .errorTrackerService(tracker)
+-                .create();
+-        tracker.getAttributes()
+-                .put("stage", "startup")
+-                .put("attempt", 2)
+-                .put("retrying", true);
+-        tracker.trackError("with global attributes");
+-
+-        final var service = context.errorTrackerService()
+-                .map(SimpleErrorTrackerService.class::cast)
+-                .orElseThrow();
+-        final var data = service.createData();
+-        assertNotNull(data);
+-        final var globalContext = data.getAsJsonObject("context");
+-
+-        assertEquals("startup", globalContext.get("stage").getAsString());
+-        assertEquals(2, globalContext.get("attempt").getAsInt());
+-        assertTrue(globalContext.get("retrying").getAsBoolean());
+-    }
+-
+-    @Test
+-    public void errorTrackerServiceSerializesRegisteredTrackerAttributesBeforeErrorAttributes() {
+-        final var globalTracker = ErrorTracker.contextUnaware();
+-        final var tracker = ErrorTracker.contextUnaware();
+-        final var context = new MockContext.Factory()
+-                .errorTrackerService(globalTracker)
+-                .create();
+-        tracker.getAttributes()
+-                .put("stage", "startup")
+-                .put("attempt", 1);
+-        tracker.trackError("with tracker attributes")
+-                .attributes(Attributes.empty()
+-                        .put("attempt", 2)
+-                        .put("retrying", true));
+-
+-        final var service = context.errorTrackerService()
+-                .map(SimpleErrorTrackerService.class::cast)
+-                .orElseThrow();
+-        service.registerErrorTracker(tracker);
+-        final var data = service.createData();
+-        assertNotNull(data);
+-        final var errorContext = data.getAsJsonArray("errors")
+-                .get(0)
+-                .getAsJsonObject()
+-                .getAsJsonObject("context");
+-
+-        assertEquals("startup", errorContext.get("stage").getAsString());
+-        assertEquals(2, errorContext.get("attempt").getAsInt());
+-        assertTrue(errorContext.get("retrying").getAsBoolean());
+-    }
+-
+-    private RuntimeException createStableError() {
+-        final var error = new RuntimeException("duplicate");
+-        error.setStackTrace(new StackTraceElement[]{
+-                new StackTraceElement("example.Plugin", "run", "Plugin.java", 42)
+-        });
+-        return error;
+-    }
+-}
+--- a/core/src/test/java/dev/faststats/FeatureFlagTest.java
++++ /dev/null
+@@ -1,305 +0,0 @@
+-package dev.faststats;
+-
+-import com.google.gson.JsonObject;
+-import com.google.gson.JsonParser;
+-import org.jspecify.annotations.Nullable;
+-import org.junit.jupiter.api.AfterAll;
+-import org.junit.jupiter.api.BeforeAll;
+-import org.junit.jupiter.api.BeforeEach;
+-import org.junit.jupiter.api.Test;
+-
+-import java.io.BufferedReader;
+-import java.io.IOException;
+-import java.io.InputStreamReader;
+-import java.io.OutputStream;
+-import java.io.UncheckedIOException;
+-import java.net.ServerSocket;
+-import java.net.Socket;
+-import java.nio.charset.StandardCharsets;
+-import java.time.Duration;
+-import java.util.Optional;
+-import java.util.concurrent.CompletableFuture;
+-import java.util.concurrent.CountDownLatch;
+-import java.util.concurrent.ExecutorService;
+-import java.util.concurrent.Executors;
+-import java.util.concurrent.LinkedBlockingQueue;
+-import java.util.concurrent.TimeUnit;
+-
+-import static org.junit.jupiter.api.Assertions.assertEquals;
+-import static org.junit.jupiter.api.Assertions.assertFalse;
+-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+-import static org.junit.jupiter.api.Assertions.assertSame;
+-import static org.junit.jupiter.api.Assertions.assertThrows;
+-import static org.junit.jupiter.api.Assertions.assertTrue;
+-
+-public final class FeatureFlagTest {
+-    private static FlagServer server;
+-
+-    @BeforeAll
+-    public static void startServer() throws IOException {
+-        server = new FlagServer();
+-        System.setProperty("faststats.flags-server", server.url());
+-    }
+-
+-    @AfterAll
+-    public static void stopServer() throws IOException {
+-        System.clearProperty("faststats.flags-server");
+-        server.close();
+-    }
+-
+-    @BeforeEach
+-    public void resetServer() {
+-        server.reset();
+-    }
+-
+-    @Test
+-    public void booleanFlagFetchesAndCachesValue() throws Exception {
+-        server.enqueue(200, "{\"value\":true}");
+-
+-        final var service = service(Duration.ofMinutes(5));
+-        final var flag = service.define("new_commands", false);
+-
+-        assertEquals("new_commands", flag.getId());
+-        assertEquals(FeatureFlag.Type.BOOLEAN, flag.getType());
+-        assertEquals(Boolean.class, flag.getTypeClass());
+-        assertFalse(flag.getDefaultValue());
+-        assertEquals(true, flag.whenReady().get(1, TimeUnit.SECONDS));
+-        assertEquals(Optional.of(true), flag.getCached());
+-        assertTrue(flag.isValid());
+-        assertTrue(flag.getExpiration().isPresent());
+-
+-        final var request = server.takeRequest();
+-        assertEquals("/v1/check", request.path());
+-        assertEquals("Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", request.headers().get("authorization").getAsString());
+-        assertEquals("new_commands", request.body().get("key").getAsString());
+-    }
+-
+-    @Test
+-    public void stringAndNumberFlagsUseDefaultValueTypes() throws Exception {
+-        server.enqueue(200, "{\"value\":\"zstd\"}");
+-        server.enqueue(200, "{\"value\":12.5}");
+-
+-        final var service = service(Duration.ofMinutes(5));
+-        final var stringFlag = service.define("compression", "gzip");
+-
+-        assertEquals(FeatureFlag.Type.STRING, stringFlag.getType());
+-        assertEquals(String.class, stringFlag.getTypeClass());
+-        assertEquals("gzip", stringFlag.getDefaultValue());
+-        assertEquals("zstd", stringFlag.whenReady().get(1, TimeUnit.SECONDS));
+-
+-        final var numberFlag = service.define("sample_rate", 1);
+-        assertEquals(FeatureFlag.Type.NUMBER, numberFlag.getType());
+-        assertEquals(Number.class, numberFlag.getTypeClass());
+-        assertEquals(1, numberFlag.getDefaultValue());
+-        assertEquals(12.5, numberFlag.whenReady().get(1, TimeUnit.SECONDS).doubleValue());
+-    }
+-
+-    @Test
+-    public void serviceAndFlagAttributesAreMergedInFetchRequest() throws Exception {
+-        server.enqueue(200, "{\"value\":true}");
+-
+-        final var serviceAttributes = Attributes.empty()
+-                .put("region", "global")
+-                .put("players", 20)
+-                .put("premium", false);
+-        final var flagAttributes = Attributes.empty()
+-                .put("region", "flag")
+-                .put("beta", true);
+-        final var service = service(serviceAttributes, Duration.ofMinutes(5));
+-        final var flag = service.define("targeted", false, flagAttributes);
+-
+-        assertTrue(flag.whenReady().get(1, TimeUnit.SECONDS));
+-
+-        final var attributes = server.takeRequest().body().getAsJsonObject("attributes");
+-        assertEquals("flag", attributes.get("region").getAsString());
+-        assertEquals(20, attributes.get("players").getAsInt());
+-        assertTrue(attributes.get("beta").getAsBoolean());
+-        assertFalse(attributes.get("premium").getAsBoolean());
+-    }
+-
+-    @Test
+-    public void whenReadyUsesValidCachedValueWithoutFetchingAgain() throws Exception {
+-        server.enqueue(200, "{\"value\":true}");
+-
+-        final var service = service(Duration.ofMinutes(5));
+-        final var flag = service.define("cached", false);
+-
+-        assertTrue(flag.whenReady().get(1, TimeUnit.SECONDS));
+-        server.takeRequest();
+-
+-        assertTrue(flag.whenReady().get(1, TimeUnit.SECONDS));
+-        assertEquals(0, server.requestCountAfterWaiting(Duration.ofMillis(150)));
+-    }
+-
+-    @Test
+-    public void whenReadyRefetchesExpiredCachedValue() throws Exception {
+-        server.enqueue(200, "{\"value\":false}");
+-        server.enqueue(200, "{\"value\":true}");
+-
+-        final var service = service(Duration.ofMillis(1));
+-        final var flag = service.define("expired", false);
+-
+-        assertFalse(flag.whenReady().get(1, TimeUnit.SECONDS));
+-        server.takeRequest();
+-        Thread.sleep(5);
+-
+-        assertTrue(flag.whenReady().get(1, TimeUnit.SECONDS));
+-        assertEquals("/v1/check", server.takeRequest().path());
+-        assertEquals(Optional.of(true), flag.getCached());
+-        Thread.sleep(5);
+-        assertFalse(flag.isValid());
+-    }
+-
+-    @Test
+-    public void concurrentFetchesShareInProgressRequest() throws Exception {
+-        final var releaseResponse = new CountDownLatch(1);
+-        server.enqueue(200, "{\"value\":true}", releaseResponse);
+-
+-        final var service = service(Duration.ofMinutes(5));
+-        final var flag = service.define("shared", false);
+-
+-        final CompletableFuture<Boolean> first = flag.fetch();
+-        final CompletableFuture<Boolean> second = flag.fetch();
+-
+-        assertSame(first, second);
+-        assertEquals(1, server.requestCountAfterWaiting(Duration.ofMillis(150)));
+-
+-        releaseResponse.countDown();
+-        assertTrue(first.get(1, TimeUnit.SECONDS));
+-    }
+-
+-    @Test
+-    public void nonSuccessfulFetchResponseFails() {
+-        server.enqueue(500, "{\"value\":true}");
+-
+-        final var service = service(Duration.ofMinutes(5));
+-        final var flag = service.define("broken", false);
+-
+-        final var error = assertThrows(Exception.class, () -> flag.whenReady().get(1, TimeUnit.SECONDS));
+-        assertInstanceOf(IllegalStateException.class, error.getCause());
+-    }
+-
+-    private static SimpleFeatureFlagService service(final Duration ttl) {
+-        return service(Attributes.empty(), ttl);
+-    }
+-
+-    private static SimpleFeatureFlagService service(final Attributes attributes, final Duration ttl) {
+-        return new SimpleFeatureFlagService(new MockContext.Factory()
+-                .featureFlagService(FeatureFlagService.Factory::create)
+-                .create(), attributes, ttl);
+-    }
+-
+-    private static final class FlagServer implements AutoCloseable {
+-        private final ServerSocket socket;
+-        private final ExecutorService executor = Executors.newCachedThreadPool();
+-        private final LinkedBlockingQueue<Response> responses = new LinkedBlockingQueue<>();
+-        private final LinkedBlockingQueue<Request> requests = new LinkedBlockingQueue<>();
+-
+-        FlagServer() throws IOException {
+-            socket = new ServerSocket(0);
+-            executor.execute(() -> {
+-                while (!socket.isClosed()) {
+-                    try {
+-                        final var client = socket.accept();
+-                        executor.execute(() -> handle(client));
+-                    } catch (final IOException e) {
+-                        if (!socket.isClosed()) throw new UncheckedIOException(e);
+-                    }
+-                }
+-            });
+-        }
+-
+-        String url() {
+-            return "http://127.0.0.1:" + socket.getLocalPort();
+-        }
+-
+-        void enqueue(final int status, final String body) {
+-            enqueue(status, body, null);
+-        }
+-
+-        void enqueue(final int status, final String body, @Nullable final CountDownLatch release) {
+-            responses.add(new Response(status, body, release));
+-        }
+-
+-        void reset() {
+-            requests.clear();
+-            responses.clear();
+-        }
+-
+-        Request takeRequest() throws InterruptedException {
+-            final var request = requests.poll(1, TimeUnit.SECONDS);
+-            if (request == null) throw new AssertionError("Timed out waiting for request");
+-            return request;
+-        }
+-
+-        int requestCountAfterWaiting(final Duration duration) throws InterruptedException {
+-            Thread.sleep(duration.toMillis());
+-            return requests.size();
+-        }
+-
+-        private void handle(final Socket client) {
+-            try (client) {
+-                final var reader = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+-                final var requestLine = reader.readLine();
+-                if (requestLine == null) return;
+-
+-                final var path = requestLine.split(" ")[1];
+-                final var headers = new JsonObject();
+-                int contentLength = 0;
+-
+-                String line;
+-                while ((line = reader.readLine()) != null && !line.isEmpty()) {
+-                    final var separator = line.indexOf(':');
+-                    final var name = line.substring(0, separator).toLowerCase();
+-                    final var value = line.substring(separator + 1).trim();
+-                    headers.addProperty(name, value);
+-                    if (name.equals("content-length")) contentLength = Integer.parseInt(value);
+-                }
+-
+-                final var bodyChars = new char[contentLength];
+-                var read = 0;
+-                while (read < contentLength) {
+-                    final var count = reader.read(bodyChars, read, contentLength - read);
+-                    if (count == -1) break;
+-                    read += count;
+-                }
+-
+-                final var body = new String(bodyChars, 0, read);
+-                requests.add(new Request(path, headers, body.isEmpty() ? new JsonObject() : JsonParser.parseString(body).getAsJsonObject()));
+-
+-                final var response = responses.poll(1, TimeUnit.SECONDS);
+-                if (response == null) throw new AssertionError("No response enqueued");
+-                if (response.release() != null) response.release().await(1, TimeUnit.SECONDS);
+-                writeResponse(client.getOutputStream(), response);
+-            } catch (final IOException e) {
+-                throw new UncheckedIOException(e);
+-            } catch (final InterruptedException e) {
+-                Thread.currentThread().interrupt();
+-                throw new AssertionError(e);
+-            }
+-        }
+-
+-        private void writeResponse(final OutputStream output, final Response response) throws IOException {
+-            final var bytes = response.body().getBytes(StandardCharsets.UTF_8);
+-            final var headers = "HTTP/1.1 " + response.status() + " OK\r\n" +
+-                    "Content-Type: application/json\r\n" +
+-                    "Content-Length: " + bytes.length + "\r\n" +
+-                    "Connection: close\r\n" +
+-                    "\r\n";
+-            output.write(headers.getBytes(StandardCharsets.UTF_8));
+-            output.write(bytes);
+-        }
+-
+-        @Override
+-        public void close() throws IOException {
+-            socket.close();
+-            executor.shutdownNow();
+-        }
+-    }
+-
+-    private record Request(String path, JsonObject headers, JsonObject body) {
+-    }
+-
+-    private record Response(int status, String body, @Nullable CountDownLatch release) {
+-    }
+-}
+--- a/core/src/test/java/dev/faststats/MockContext.java
++++ b/core/src/test/java/dev/faststats/MockContext.java
+@@ -55,13 +55,8 @@
+             return this;
+         }
+ 
+-        public Factory errorTrackerService(final ErrorTracker errorTracker) {
+-            builder.errorTrackerService(errorTracker);
+-            return this;
+-        }
+-
+-        public Factory featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            builder.featureFlagService(featureFlagService);
++        public Factory service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            builder.service(service);
+             return this;
+         }
+ 
+--- a/core/src/test/java/dev/faststats/SimpleContextTest.java
++++ b/core/src/test/java/dev/faststats/SimpleContextTest.java
+@@ -3,7 +3,6 @@
+ import org.junit.jupiter.api.Test;
+ 
+ import java.util.UUID;
+-import java.util.concurrent.ExecutionException;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -25,8 +24,8 @@
+         assertDoesNotThrow(() -> new MockContext.Factory()
+                 .allFeaturesDisabled()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .create()
+         );
+     }
+@@ -35,31 +34,17 @@
+     public void firstRunAttachesServicesWithoutSubmitting() {
+         final var context = new MockContext.Factory()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .firstRun()
+                 .create();
+ 
+         assertTrue(context.metrics().isPresent());
+-        assertTrue(context.errorTrackerService().isPresent());
+-        assertTrue(context.featureFlagService().isPresent());
++        assertTrue(context.service(FastStatsService.class).isPresent());
+         assertFalse(context.isSubmitting());
+     }
+ 
+     @Test
+-    public void featureFlagsResolveToDefaultWhileNotSubmitting() throws Exception {
+-        final var context = new MockContext.Factory()
+-                .featureFlagService(FeatureFlagService.Factory::create)
+-                .firstRun()
+-                .create();
+-        final var flag = context.featureFlagService().orElseThrow().define("test", true);
+-
+-        assertTrue(flag.fetch().get(1, TimeUnit.SECONDS));
+-        assertFalse(flag.getCached().isPresent());
+-        assertThrows(ExecutionException.class, () -> flag.optIn().get(1, TimeUnit.SECONDS));
+-    }
+-
+-    @Test
+     public void submissionCanBeStartedAndStopped() {
+         final var context = new MockContext.Factory()
+                 .metrics(Metrics.Factory::create)
+@@ -88,13 +73,12 @@
+     public void repeatedRunDoesAttachServices() {
+         final var context = new MockContext.Factory()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .create();
+ 
+         assertTrue(context.metrics().isPresent());
+-        assertTrue(context.errorTrackerService().isPresent());
+-        assertTrue(context.featureFlagService().isPresent());
++        assertTrue(context.service(FastStatsService.class).isPresent());
+         assertTrue(context.isSubmitting());
+     }
+ 
+@@ -147,7 +131,13 @@
+                 .config(config(UUID.randomUUID(), true))
+                 .projectName("Mock")
+                 .token("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+-                .errorTrackerService(ErrorTracker.contextUnaware())
++                .service(ctx -> new FastStatsService() {
++                    @Override
++                    public void onStart() {
++                        ctx.scheduleAtFixedRate(() -> {
++                        }, 0, 1, TimeUnit.SECONDS);
++                    }
++                })
+                 .metrics(Metrics.Factory::create)
+                 .scheduler((task, initialDelay, period, unit) -> {
+                     // the error task is scheduled first, the metrics task is rejected
+--- a/minestom/src/main/java/dev/faststats/minestom/FastStatsMinestom.java
++++ b/minestom/src/main/java/dev/faststats/minestom/FastStatsMinestom.java
+@@ -1,7 +1,5 @@
+ package dev.faststats.minestom;
+ 
+-import dev.faststats.ErrorTracker;
+-import dev.faststats.ErrorTrackerService;
+ import dev.faststats.FastStatsContext;
+ import dev.faststats.SimpleContext;
+ import dev.faststats.config.SimpleConfig;
+@@ -22,7 +20,7 @@
+  * final var server = MinecraftServer.init();
+  * final var context = FastStatsMinestom.builder()
+  *         .metrics(Metrics.Factory::create)
+- *         .errorTrackerService(ErrorTracker.contextAware())
++ *         .service(ErrorTrackerService.create(ErrorTracker.contextAware()))
+  *         .build();
+  * MinecraftServer.getSchedulerManager().buildShutdownTask(context::shutdown);
+  * server.start("0.0.0.0", 25565);
+@@ -93,13 +91,10 @@
+     }
+ 
+     private static void registerExceptionHandler(final FastStatsContext context) {
+-        context.errorTrackerService().map(ErrorTrackerService::globalErrorTracker).ifPresent(errorTracker -> {
+-            final var handler = MinecraftServer.getExceptionManager().getExceptionHandler();
+-            MinecraftServer.getExceptionManager().setExceptionHandler(error -> {
+-                handler.handleException(error);
+-                if (!ErrorTracker.isSameLoader(FastStatsMinestom.class.getClassLoader(), error)) return;
+-                errorTracker.trackError(error);
+-            });
++        final var handler = MinecraftServer.getExceptionManager().getExceptionHandler();
++        MinecraftServer.getExceptionManager().setExceptionHandler(error -> {
++            handler.handleException(error);
++            context.trackError(error);
+         });
+     }
+ }
+--- a/core/src/test/java/dev/faststats/TokenResourceTest.java
++++ b/core/src/test/java/dev/faststats/TokenResourceTest.java
+@@ -61,15 +61,11 @@
+         final var context = new MockContext.Factory()
+                 .noToken()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
+                 .create();
+ 
+         assertFalse(context.isEnabled());
+         assertEquals("", context.getToken());
+         assertFalse(context.metrics().isPresent());
+-        assertFalse(context.errorTrackerService().isPresent());
+-        assertFalse(context.featureFlagService().isPresent());
+         assertDoesNotThrow(context::ready);
+         assertDoesNotThrow(context::shutdown);
+     }

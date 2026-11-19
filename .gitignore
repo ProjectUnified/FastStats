@@ -112,3 +112,26 @@ buildNumber.properties
 
 # Common working directory
 run/
+
+# Generated module sources (populated by scripts/sync-upstream.sh, never committed)
+core/src/
+config/src/
+bukkit/src/
+bungeecord/src/
+hytale/src/
+minestom/src/
+nukkit/src/
+sponge/src/
+velocity/src/
+
+# Quilt patch state (see scripts/; patches/series is the order truth)
+.pc/
+
+# Pinned upstream checkout (populated by scripts/sync-upstream.sh)
+.upstream/
+
+# JvmDowngrader API cache
+.jvmdg/
+
+# Keep the Gradle wrapper jar (the generic *.jar rule ignores it)
+!mod-platforms/fabric/gradle/wrapper/gradle-wrapper.jar

@@ -1,232 +1,253 @@
 # FastStats
 
-A client implementation for [FastStats](https://faststats.dev)
+> [!NOTE]
+> This is a patch-based fork of [faststats-dev/faststats-java](https://github.com/faststats-dev/faststats-java).
+> The public API, wire format and module layout are upstream's. The fork only adds the patches in
+> [`patches/`](./patches) and a Maven build that publishes the artifacts.
 
-## Differences from [`faststats-java`](https://github.com/faststats-dev/faststats-java)
+> [!IMPORTANT]
+> This is a breaking rewrite from the previous `0.x` reimplementation. The fork version follows upstream
+> (currently `0.33.0`): the artifacts expose upstream's `dev.faststats` API. See [Differences from upstream](#differences-from-upstream).
 
-- **Modular Sub-modules**: Key features, serialization engines, network submitters, and server platforms are split into individual sub-modules. Users can import only what is required for their specific use cases instead of importing monolithic dependencies.
-- **Java 8 Support**: The library targets Java 8 compatibility across all modules (except `faststats-httpclient` and some platforms that require newer Java versions).
-- **Separated Error Tracker**: The error tracking mechanism is isolated as a standalone, optional feature module (`faststats-error-tracker`) instead of being bundled directly in core.
-- **Same wire format**: Endpoints, payloads and opt-out switches follow `faststats-java`, including the `project_name` field, the feature flag request bodies, and the error reporting limits and redactions.
+## Modules
+
+The modules mirror upstream, minus the mod-loader and onboarding modules, plus two fork-owned
+modules that upstream keeps inside core:
+
+| Module | Maven artifact | Target |
+|---|---|---|
+| `core` | `io.github.projectunified:faststats-core` | Java 8 |
+| `config` | `io.github.projectunified:faststats-config` | Java 8 |
+| `error-tracker` | `io.github.projectunified:faststats-error-tracker` | Java 8 |
+| `feature-flag` | `io.github.projectunified:faststats-feature-flag` | Java 8 |
+| `bukkit` | `io.github.projectunified:faststats-bukkit` | Java 8 |
+| `bungeecord` | `io.github.projectunified:faststats-bungeecord` | Java 17 |
+| `hytale` | `io.github.projectunified:faststats-hytale` | Java 25 |
+| `minestom` | `io.github.projectunified:faststats-minestom` | Java 25 |
+| `nukkit` | `io.github.projectunified:faststats-nukkit` | Java 17 |
+| `sponge` | `io.github.projectunified:faststats-sponge` | Java 17 |
+| `velocity` | `io.github.projectunified:faststats-velocity` | Java 21 |
+
+`fabric` lives in a separate Gradle project, [`mod-platforms/fabric`](./mod-platforms/fabric),
+because it uses Stonecutter to produce one artifact per Minecraft version. `forge`, `neoforge` and
+`onboarding` are not included for now: their multi-loader builds were too memory-hungry to keep in
+this repository.
+
+## Patch-based build
+
+No upstream `src/` tree is checked in. Module sources are generated from the pinned upstream commit in
+[`upstream.ref`](./upstream.ref), then patched with [Quilt](https://savannah.nongnu.org/projects/quilt)
+(`patches/` + `patches/series`; quilt state in `.pc/` and the upstream checkout in `.upstream/` are
+gitignored). The fork-owned `error-tracker`, `feature-flag` and `mod-platforms/fabric` sources are checked in
+and are not regenerated. Version mapping: the fork version matches upstream's version (currently `0.33.0`); `fork <version> == upstream <SHA in upstream.ref> + patches/`.
+
+Prereqs: `git`, `quilt` 0.69+, JDK 25, Maven.
+
+```sh
+bash scripts/sync-upstream.sh && mvn clean install
+```
+
+`mvn install` (rather than `package`) puts `faststats-core` and `faststats-config` into the local
+Maven repository, which the Fabric Gradle project resolves from `mavenLocal()`.
+
+### Fabric mod platform
+
+The Fabric project is checked in. It is a small fork-owned Stonecutter wrapper around the core API
+(a single source tree, no compatibility layer) that produces one artifact per Minecraft version:
+
+```sh
+cd mod-platforms/fabric && ./gradlew build
+```
+
+This builds `io.github.projectunified:faststats-fabric:0.33.0+<minecraft>` for the Stonecutter
+versions in [`stonecutter.properties.toml`](./mod-platforms/fabric/stonecutter.properties.toml).
+
+| Task | Command |
+|---|---|
+| Edit a patch | `bash scripts/edit-patch.sh <NN-name>` (target stays applied on top) |
+| Regenerate + re-apply (`--continue` resumes after conflicts) | `bash scripts/finish-patch.sh <NN-name> [--continue]` |
+| Start a patch (next free `NN`, appended last; prefixes never reordered) | `bash scripts/new-patch.sh <NN-name>`, then edit, then finish |
+| Drop an empty patch | `quilt delete -r <NN-name>` |
+| Upgrade upstream | re-resolve `git ls-remote https://github.com/faststats-dev/faststats-java.git HEAD` into `upstream.ref`, then `bash scripts/sync-upstream.sh`, resolving failures via the edit/finish cycle |
+
+Rules: `quilt add` every file you will touch BEFORE editing or creating it (refresh only records
+tracked files; unrecorded edits are silently missed). Pushes use `--fuzz=0` (exact context); refresh
+uses `-p ab --no-timestamps --no-index` (stable `a/`/`b/` headers). Run the sync script again to
+restore a clean tree.
+
+## Java 8 downgrade
+
+Upstream compiles with Java 17+ language features (sealed types, records, pattern matching,
+`java.net.http`). The fork keeps those sources and downgrades the `core`, `config`, `error-tracker`,
+`feature-flag` and `bukkit` jars to class file 52 with
+[JvmDowngrader](https://github.com/unimined/JvmDowngrader):
+
+- `module-info.java` is dropped while copying the sources (Maven classpath build, no JPMS).
+- The Maven `package` phase runs JvmDowngrader, then shades only the Java API stubs the jar uses
+  (`java.net.http` is implemented on top of `HttpURLConnection`, `List.of`, `String.formatted`, …).
+- Patch `01-java8-http-exception` replaces the `HttpConnectTimeoutException` catch with
+  `IOException`; the JvmDowngrader stub does not provide that exception class.
+- `bukkit` is compiled against the modern Paper API but still emits Java 8 bytecode; modern API
+  calls are already guarded by upstream. Old Spigot servers can therefore load it.
+- The two fork modules use the Java 8 downgrade too, so `ErrorTracker`/`FeatureFlag` support works
+  on old servers.
+
+Other modules keep upstream's target level (17/21/25).
 
 ## Installation
 
-It is recommended to import `faststats-bom` in your `<dependencyManagement>` section to manage version configurations of
-FastStats modules:
-
-```xml
-<dependencyManagement>
-    <dependencies>
-        <dependency>
-            <groupId>io.github.projectunified</groupId>
-            <artifactId>faststats-bom</artifactId>
-            <version>VERSION</version>
-            <type>pom</type>
-            <scope>import</scope>
-        </dependency>
-    </dependencies>
-</dependencyManagement>
-```
-
-Then, add the modules you need to your `pom.xml` without specifying versions:
+Artifacts are published to Maven Central under `io.github.projectunified`:
 
 ```xml
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-core</artifactId>
+    <version>0.33.0</version>
 </dependency>
 
-<!-- JSON serialization -->
-<dependency>
-    <groupId>io.github.projectunified</groupId>
-    <artifactId>faststats-gson</artifactId>
-</dependency>
-
-<!-- Submitter (Java 8+) -->
-<dependency>
-    <groupId>io.github.projectunified</groupId>
-    <artifactId>faststats-net</artifactId>
-</dependency>
-
-<!-- Submitter (Java 11+) -->
-<dependency>
-    <groupId>io.github.projectunified</groupId>
-    <artifactId>faststats-httpclient</artifactId>
-</dependency>
-
-<!-- Error Tracker Feature -->
+<!-- Optional features (separate from core) -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-error-tracker</artifactId>
+    <version>0.33.0</version>
 </dependency>
-
-<!-- Feature Flag Feature -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-feature-flag</artifactId>
+    <version>0.33.0</version>
 </dependency>
 
-<!-- Platform -->
+<!-- Server platforms -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-bukkit</artifactId>
+    <version>0.33.0</version>
 </dependency>
 ```
 
+Gson is a required runtime dependency of `faststats-core` and is declared transitively.
+
 ## Quick Start
 
-### 1. Basic Telemetry
-The core library allows tracking standard metrics periodically. Below is a basic setup for a Bukkit plugin:
+The API is upstream's API (`dev.faststats`). A Bukkit plugin:
 
 ```java
+import dev.faststats.FastStatsContext;
+import dev.faststats.Metrics;
+import dev.faststats.bukkit.FastStatsBukkit;
+import dev.faststats.errortracker.ErrorTracker;
+import dev.faststats.errortracker.ErrorTrackerService;
+
 public class MyPlugin extends JavaPlugin {
-    private Metrics metrics;
+    private final FastStatsContext context = FastStatsBukkit.builder(this)
+            .metrics(Metrics.Factory::create)
+            .service(ErrorTrackerService.create(ErrorTracker.contextAware()))
+            .build();
 
     @Override
     public void onEnable() {
-        metrics = Metrics.builder()
-                .platform(new BukkitPlatform(this))
-                .serializer(new GsonSerializer())
-                .submitter(new NetSubmitter("YOUR_TOKEN"))
-                .addMetric(Metric.string("my_feature", () -> "enabled"))
-                .build();
-        metrics.start();
+        context.ready();
     }
 
     @Override
     public void onDisable() {
-        metrics.shutdown();
+        context.shutdown();
     }
 }
 ```
 
-### 2. Error Tracking Feature (`ErrorTracker`)
-To track uncaught exceptions and manually submit handled errors, include the `faststats-error-tracker` module and register the `ErrorTracker` feature. It automatically redacts sensitive information (like user homes, Discord webhooks, IPs, etc.) and allows ignoring specific error types or message patterns.
+Custom metrics and flush callbacks:
 
 ```java
-import io.github.projectunified.faststats.errortracker.ErrorTracker;
+import dev.faststats.data.Metric;
+import java.util.concurrent.atomic.AtomicInteger;
 
-// Inside onEnable:
-ErrorTracker errorTracker = ErrorTracker.contextAware()
-        .ignoreError(NullPointerException.class)
-        .ignoreError("Some pattern to ignore")
-        .anonymize("my-sensitive-regex", "[hidden]");
+private final AtomicInteger gamesPlayed = new AtomicInteger();
 
-metrics = Metrics.builder()
-        .platform(new BukkitPlatform(this))
-        .serializer(new GsonSerializer())
-        .submitter(new NetSubmitter("YOUR_TOKEN"))
-        .addFeature(errorTracker)
+private final FastStatsContext context = FastStatsBukkit.builder(this)
+        .metrics(factory -> factory
+                .addMetric(Metric.number("games_played", gamesPlayed::get))
+                .onFlush(() -> gamesPlayed.set(0))
+                .create())
         .build();
-metrics.start();
-
-// Tracking handled errors manually anywhere in your code:
-try {
-    // some code
-} catch (Exception e) {
-    metrics.getFeature(ErrorTracker.class).ifPresent(tracker -> tracker.trackError(e));
-}
 ```
 
-### 3. Paper Exception Tracking Feature (`PaperErrorTracker`)
-If you are running on Paper server software, you can include the `faststats-paper` module to automatically intercept server plugin exceptions and forward them to the `ErrorTracker`.
+Feature flags (add `faststats-feature-flag` and attach it):
 
 ```java
-import io.github.projectunified.faststats.errortracker.ErrorTracker;
-import io.github.projectunified.faststats.paper.PaperErrorTracker;
+import dev.faststats.featureflag.FeatureFlagService;
 
-// Inside onEnable:
-metrics = Metrics.builder()
-        .platform(new BukkitPlatform(this))
-        .serializer(new GsonSerializer())
-        .submitter(new NetSubmitter("YOUR_TOKEN"))
-        .addFeature(ErrorTracker.contextAware())
-        .addFeature(new PaperErrorTracker(this))
+FastStatsContext context = FastStatsBukkit.builder(this)
+        .metrics(Metrics.Factory::create)
+        .service(FeatureFlagService.create()) // or create(attributes, ttl)
         .build();
-metrics.start();
-```
 
-### 4. Feature Flag Feature (`FeatureFlagManager`)
-To define dynamic remote feature flags, opt-in/opt-out status, and manage values with cache TTL, include the `faststats-feature-flag` module and register the `FeatureFlagManager` feature:
-
-```java
-import io.github.projectunified.faststats.featureflag.FeatureFlag;
-import io.github.projectunified.faststats.featureflag.FeatureFlagManager;
-
-// Inside onEnable:
-FeatureFlagManager flagManager = new FeatureFlagManager()
-        .ttl(Duration.ofMinutes(5)); // Custom TTL for cache
-
-// Define flags (Boolean, String, or Number)
-FeatureFlag<Boolean> newFeatureFlag = flagManager.define("new_awesome_feature", false);
-
-metrics = Metrics.builder()
-        .platform(new BukkitPlatform(this))
-        .serializer(new GsonSerializer())
-        .submitter(new NetSubmitter("YOUR_TOKEN"))
-        .addFeature(flagManager)
-        .build();
-metrics.start();
-
-// Fetch feature flag asynchronously
-newFeatureFlag.fetch().thenAccept(enabled -> {
-    if (enabled) {
-        getLogger().info("Launching the new awesome feature!");
-    } else {
-        getLogger().info("New feature is disabled.");
-    }
-});
-
-// To opt-in or opt-out:
-newFeatureFlag.optIn().thenAccept(updatedVal -> {
-    getLogger().info("Successfully opted in. Updated value: " + updatedVal);
+context.service(FeatureFlagService.class).ifPresent(service -> {
+    final var flag = service.define("new_awesome_feature", false);
+    flag.fetch().thenAccept(enabled -> getLogger().info("new feature: " + enabled));
 });
 ```
 
-### 5. Flush Callbacks
-
-`onFlush` runs after the metrics payload has been accepted by the server, which makes it suitable for
-resetting counters that accumulate between submissions:
+Manual error tracking (add `faststats-error-tracker`):
 
 ```java
-AtomicInteger gamesPlayed = new AtomicInteger();
-
-metrics = Metrics.builder()
-        .platform(new BukkitPlatform(this))
-        .serializer(new GsonSerializer())
-        .submitter(new NetSubmitter("YOUR_TOKEN"))
-        .addMetric(Metric.number("games_played", gamesPlayed::get))
-        .onFlush(() -> gamesPlayed.set(0))
-        .build();
+context.service(ErrorTrackerService.class).ifPresent(service ->
+        service.globalErrorTracker().trackError(throwable).handled(true));
 ```
+
+`context.trackError(throwable)` reports an internal error to every attached service; it is used by
+the platform integrations and is a no-op when no error tracker is attached.
+
+Platform entry points: `FastStatsBukkit.builder(plugin)`, `FastStatsBungee.builder(plugin)`,
+`FastStatsHytale.builder(plugin)`, `FastStatsMinestom.builder()`, `FastStatsNukkit.builder(plugin)`,
+`FastStatsSponge.builder(...)`, `FastStatsVelocity.builder(...)`.
 
 ## Configuration
 
-FastStats reads `<platform data folder>/faststats/config.properties`, which is created on the first start. On that
-first start submission stays disabled until the server is restarted, so the file can be reviewed before opting in.
+`SimpleConfig` reads `<platform data folder>/faststats/config.properties`, created on first start.
+On the first start submission does not start until the server is restarted, so the file can be
+reviewed before opting in. To opt out, set `enabled=false`.
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `enabled` | `true` | Master switch for all FastStats features |
 | `submitMetrics` | `true` | Periodic metrics submission |
-| `submitAdditionalMetrics` | `true` | Submission of metrics added through `Metrics.Builder#addMetric` |
-| `submitErrors` | `true` | Error tracking, only used by the `faststats-error-tracker` module |
+| `submitAdditionalMetrics` | `true` | Metrics added through the metrics factory |
+| `submitErrors` | `true` | Error tracking |
 | `debug` | `false` | Verbose logging |
 | `serverId` | random UUID | Identifier submitted with every payload |
-| `project-name` | platform project name | Overrides the `project_name` field of error reports |
+| `configVersion` | current version | Config format version, upgraded automatically |
 
-System properties override the configuration file without modifying it:
+System properties override the configuration without modifying it:
 
 | Property | Description |
 | --- | --- |
-| `-Dfaststats.enabled=false` | Disables all FastStats features, including metrics and error tracking |
+| `-Dfaststats.enabled=false` | Disables all FastStats features |
 | `-Dfaststats.debug=true` | Forces debug logging |
+| `-Dfaststats.first-run` | Set by the first start to defer submission until the next restart |
 | `-Dfaststats.initial-delay=<seconds>` | Delay before the first submission, default `30` |
+| `-Dfaststats.metrics-server=<url>` | Overrides the metrics server |
+| `-Dfaststats.error-tracker-server=<url>` | Overrides the error submission endpoint |
 | `-Dfaststats.flags-server=<url>` | Overrides the feature flag server |
-| `-Dfaststats.error-tracker-server=<path or url>` | Overrides the error submission endpoint |
-| `-Dfaststats.message-length=<chars>` | Error message truncation length, default `1000` |
-| `-Dfaststats.stack-trace-length=<chars>` | Stack frame truncation length, default `300` |
-| `-Dfaststats.stack-trace-limit=<frames>` | Stack frames kept per throwable, default `30` |
 
-Custom platform implementations must implement `Platform#getProjectName()`. The returned name is submitted as
-`project_name` alongside the metrics, which is how the service attributes submissions to a project.
+## Differences from upstream
+
+- **Maven Central**: published as `io.github.projectunified:faststats-*` from a Maven reactor.
+  The module directories and public API are upstream's. Gson is a regular runtime dependency
+  instead of upstream's `compileOnlyApi`.
+- **Java 8 `core` / `config` / `bukkit`**: bytecode is downgraded by JvmDowngrader (see above).
+- **No JPMS**: `module-info.java` is removed from the generated sources, so the jars are
+  classpath-only.
+- **Separate error tracker and feature flags**: the implementations are fork-owned modules
+  (`faststats-error-tracker`, `faststats-feature-flag`) attached through the generic
+  `FastStatsContext.Builder#service(...)` / `FastStatsContext#service(Class)` API. Core no longer
+  contains those classes.
+- **Mod platforms**: `fabric` is a separate Stonecutter Gradle project in
+  `mod-platforms/fabric` with a small fork-owned wrapper (no compatibility layer); `forge`,
+  `neoforge` and `onboarding` are not included for now.
+- **Wire format**: endpoints, payloads, opt-out switches and the `project_name` field follow
+  upstream exactly.
+
+## License
+
+MIT, see [LICENSE](./LICENSE). Upstream is also MIT.

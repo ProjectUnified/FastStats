@@ -6,6 +6,10 @@ updates:
       interval: daily
       time: "22:00"
     open-pull-requests-limit: 10
+  - package-ecosystem: "gradle"
+    directory: "/mod-platforms/fabric"
+    schedule:
+      interval: "daily"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

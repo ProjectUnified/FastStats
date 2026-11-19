@@ -54,22 +54,7 @@
          }
 --- a/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
 +++ b/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
-@@ -8,14 +8,20 @@
- import org.bukkit.event.Listener;
- import org.bukkit.plugin.Plugin;
- 
--record PaperEventListener(Plugin plugin, FastStatsContext context) implements Listener {
-+final class PaperEventListener implements Listener {
-+    private final Plugin plugin;
-+    private final FastStatsContext context;
-+
-+    PaperEventListener(final Plugin plugin, final FastStatsContext context) {
-+        this.plugin = plugin;
-+        this.context = context;
-+    }
-+
-     @EventHandler(priority = EventPriority.MONITOR)
-     public void onServerException(final ServerExceptionEvent event) {
+@@ -14,8 +14,6 @@
          if (!(event.getException() instanceof final ServerPluginException exception)) return;
          if (!exception.getResponsiblePlugin().equals(plugin)) return;
          final var report = exception.getCause() != null ? exception.getCause() : exception;
@@ -3935,45 +3920,3 @@
      }
  
      String caller();
---- a/core/src/main/java/dev/faststats/SimpleAttributes.java
-+++ b/core/src/main/java/dev/faststats/SimpleAttributes.java
-@@ -2,10 +2,21 @@
- 
- import com.google.gson.JsonPrimitive;
- 
-+import java.util.Objects;
- import java.util.concurrent.ConcurrentHashMap;
- import java.util.function.BiConsumer;
- 
--record SimpleAttributes(ConcurrentHashMap<String, JsonPrimitive> attributes) implements Attributes {
-+final class SimpleAttributes implements Attributes {
-+    private final ConcurrentHashMap<String, JsonPrimitive> attributes;
-+
-+    SimpleAttributes(final ConcurrentHashMap<String, JsonPrimitive> attributes) {
-+        this.attributes = attributes;
-+    }
-+
-+    ConcurrentHashMap<String, JsonPrimitive> attributes() {
-+        return attributes;
-+    }
-+
-     @Override
-     public Attributes put(final String key, final String value) {
-         attributes.put(key, new JsonPrimitive(value));
-@@ -40,4 +51,16 @@
-     public void forEachPrimitive(final BiConsumer<String, JsonPrimitive> action) {
-         attributes.forEach(action);
-     }
-+
-+    @Override
-+    public boolean equals(final Object o) {
-+        if (this == o) return true;
-+        if (!(o instanceof SimpleAttributes)) return false;
-+        return Objects.equals(attributes, ((SimpleAttributes) o).attributes);
-+    }
-+
-+    @Override
-+    public int hashCode() {
-+        return Objects.hashCode(attributes);
-+    }
- }

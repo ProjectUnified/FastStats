@@ -87,5 +87,15 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            **/target/*.jar
+            core/target/*.jar
+            config/target/*.jar
+            error-tracker/target/*.jar
+            feature-flag/target/*.jar
+            bukkit/target/*.jar
+            bungeecord/target/*.jar
+            hytale/target/*.jar
+            minestom/target/*.jar
+            nukkit/target/*.jar
+            sponge/target/*.jar
+            velocity/target/*.jar
             mod-platforms/fabric/versions/*/build/libs/*.jar

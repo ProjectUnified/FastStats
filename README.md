@@ -84,7 +84,9 @@ Upstream compiles with Java 17+ language features (sealed types, records, patter
 
 - `module-info.java` is dropped while copying the sources (Maven classpath build, no JPMS).
 - The Maven `package` phase only runs JvmDowngrader's syntax/bytecode downgrade. The Java 8 modules
-  use Java 8 APIs directly, so no Java API stubs are bundled in the jars.
+  use Java 8 APIs directly, so no Java API stubs are bundled in the jars. Records are converted to
+  final classes automatically by `build-tools/record-converter` before the downgrade, so no record
+  conversion is maintained in the patches.
 - `bukkit` is compiled against the modern Paper API but still emits Java 8 bytecode; modern API
   calls are already guarded by upstream. Old Spigot servers can therefore load it.
 - The two fork modules use the Java 8 downgrade too, so `ErrorTracker`/`FeatureFlag` support works

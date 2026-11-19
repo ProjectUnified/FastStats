@@ -6,7 +6,8 @@
     <parent>
         <groupId>io.github.projectunified</groupId>
         <artifactId>faststats</artifactId>
-        <version>0.33.0</version>
+        <version>0.33.0.1</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>faststats-record-converter</artifactId>

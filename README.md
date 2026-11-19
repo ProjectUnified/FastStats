@@ -7,7 +7,7 @@
 
 > [!IMPORTANT]
 > This is a breaking rewrite from the previous `0.x` reimplementation. The fork version follows upstream
-> (currently `0.33.0`): the artifacts expose upstream's `dev.faststats` API. See [Differences from upstream](#differences-from-upstream).
+> (currently `0.33.0.1`): the artifacts expose upstream's `dev.faststats` API. See [Differences from upstream](#differences-from-upstream).
 
 ## Modules
 
@@ -39,7 +39,7 @@ No upstream `src/` tree is checked in. Module sources are generated from the pin
 [`upstream.ref`](./upstream.ref), then patched with [Quilt](https://savannah.nongnu.org/projects/quilt)
 (`patches/` + `patches/series`; quilt state in `.pc/` and the upstream checkout in `.upstream/` are
 gitignored). The fork-owned `error-tracker`, `feature-flag` and `mod-platforms/fabric` sources are checked in
-and are not regenerated. Version mapping: the fork version matches upstream's version (currently `0.33.0`); `fork <version> == upstream <SHA in upstream.ref> + patches/`.
+and are not regenerated. Version mapping: the fork version is `<upstream-version>.<patch-number>` (currently `0.33.0.1`); `fork 0.33.0.1 == upstream 0.33.0 + patches/`.
 
 Prereqs: `git`, `quilt` 0.69+, JDK 25, Maven.
 
@@ -59,7 +59,7 @@ The Fabric project is checked in. It is a small fork-owned Stonecutter wrapper a
 cd mod-platforms/fabric && ./gradlew build
 ```
 
-This builds `io.github.projectunified:faststats-fabric:0.33.0+<minecraft>` for the Stonecutter
+This builds `io.github.projectunified:faststats-fabric:0.33.0.1+<minecraft>` for the Stonecutter
 versions in [`stonecutter.properties.toml`](./mod-platforms/fabric/stonecutter.properties.toml).
 
 | Task | Command |
@@ -102,26 +102,26 @@ Artifacts are published to Maven Central under `io.github.projectunified`:
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-core</artifactId>
-    <version>0.33.0</version>
+    <version>0.33.0.1</version>
 </dependency>
 
 <!-- Optional features (separate from core) -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-error-tracker</artifactId>
-    <version>0.33.0</version>
+    <version>0.33.0.1</version>
 </dependency>
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-feature-flag</artifactId>
-    <version>0.33.0</version>
+    <version>0.33.0.1</version>
 </dependency>
 
 <!-- Server platforms -->
 <dependency>
     <groupId>io.github.projectunified</groupId>
     <artifactId>faststats-bukkit</artifactId>
-    <version>0.33.0</version>
+    <version>0.33.0.1</version>
 </dependency>
 ```
 

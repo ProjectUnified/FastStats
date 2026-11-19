@@ -19,10 +19,10 @@ The Stonecutter versions are configured in [`stonecutter.properties.toml`](./sto
 and [`settings.gradle.kts`](./settings.gradle.kts). Artifacts are written to `versions/<minecraft>/build/libs/`:
 
 ```text
-io.github.projectunified:faststats-fabric:0.33.0+1.21.11
-io.github.projectunified:faststats-fabric:0.33.0+26.1.2
-io.github.projectunified:faststats-fabric:0.33.0+26.2
-io.github.projectunified:faststats-fabric:0.33.0+26.3
+io.github.projectunified:faststats-fabric:0.33.0.1+1.21.11
+io.github.projectunified:faststats-fabric:0.33.0.1+26.1.2
+io.github.projectunified:faststats-fabric:0.33.0.1+26.2
+io.github.projectunified:faststats-fabric:0.33.0.1+26.3
 ```
 
 ## Usage

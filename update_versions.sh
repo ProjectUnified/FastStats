@@ -13,6 +13,12 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+# Fork versions are <upstream-version>.<patch-number>.
+UPSTREAM_VERSION="$(sed -n 's/^version=//p' "$ROOT/.upstream/gradle.properties" 2>/dev/null | head -n 1 || true)"
+if [ -n "$UPSTREAM_VERSION" ] && [[ "$VERSION" != "$UPSTREAM_VERSION".* ]]; then
+    echo "WARNING: fork version $VERSION should be $UPSTREAM_VERSION.<patch-number>" >&2
+fi
+
 MODULE_DIRS=()
 
 # Function to recursively find valid pom.xml files

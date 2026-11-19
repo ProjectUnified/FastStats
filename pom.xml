@@ -366,6 +366,8 @@
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <deploymentName>${project.name}</deploymentName>
+                            <!-- Retries must not fail on modules that were already published by an earlier run. -->
+                            <ignorePublishedComponents>true</ignorePublishedComponents>
                         </configuration>
                     </plugin>
                 </plugins>

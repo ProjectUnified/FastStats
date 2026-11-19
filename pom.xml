@@ -265,6 +265,7 @@
                                 <argument>-jar</argument>
                                 <argument>${project.basedir}/../build-tools/record-converter/target/faststats-record-converter-${project.version}.jar</argument>
                                 <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                                <argument>${faststats.downgrade.classpath}</argument>
                             </arguments>
                         </configuration>
                     </execution>

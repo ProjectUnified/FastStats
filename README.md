@@ -85,6 +85,8 @@ Upstream compiles with Java 17+ language features (sealed types, records, patter
 - `module-info.java` is dropped while copying the sources (Maven classpath build, no JPMS).
 - The Maven `package` phase runs JvmDowngrader, then shades only the Java API stubs the jar uses
   (`java.net.http` is implemented on top of `HttpURLConnection`, `List.of`, `String.formatted`, …).
+  The stubs are relocated under each module's package (`dev.faststats.jvmdg`,
+  `dev.faststats.config.jvmdg`, `dev.faststats.errortracker.jvmdg`, …) so modules do not collide.
 - Patch `01-java8-http-exception` replaces the `HttpConnectTimeoutException` catch with
   `IOException`; the JvmDowngrader stub does not provide that exception class.
 - `bukkit` is compiled against the modern Paper API but still emits Java 8 bytecode; modern API

@@ -10,26 +10,26 @@ import dev.faststats.SimpleContext;
 import dev.faststats.SubmissionService;
 import org.jspecify.annotations.Nullable;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
+import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.AbstractMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 final class SimpleFeatureFlagService extends SubmissionService implements FeatureFlagService {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(5);
     private static final String CHECK_PATH = "/v1/check";
     private static final String OPT_IN_PATH = "/v1/opt-in";
     private static final String OPT_OUT_PATH = "/v1/opt-out";
-
-    private static final HttpClient CLIENT = HttpClient.newBuilder()
-            .connectTimeout(TIMEOUT)
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
 
     private final URI url = getServerUrl("faststats.flags-server", "https://flags.faststats.dev");
 
@@ -75,25 +75,89 @@ final class SimpleFeatureFlagService extends SubmissionService implements Featur
     }
 
     private <T> CompletableFuture<T> sendOptRequest(final SimpleFeatureFlag<T> flag, final String path) {
-        if (!context.isSubmitting()) return CompletableFuture.failedFuture(new IllegalStateException(
-                "FastStats submission is not active for " + context.getProjectName()
-        ));
-        final var requestBody = createRequestBody(flag);
-        return send(path, requestBody).thenCompose(response -> {
-            if (isSuccessful(response)) return fetch(flag);
-            logUnsuccessfulResponse(response);
-            return CompletableFuture.failedFuture(new IllegalStateException(
-                    "Feature flag opt request failed with status %s (%s)".formatted(response.statusCode(), response.body())
+        if (!context.isSubmitting()) {
+            final CompletableFuture<T> future = new CompletableFuture<>();
+            future.completeExceptionally(new IllegalStateException(
+                    "FastStats submission is not active for " + context.getProjectName()
             ));
+            return future;
+        }
+        final JsonObject requestBody = createRequestBody(flag);
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                final HttpURLConnection connection = (HttpURLConnection) url.resolve(path).toURL().openConnection();
+                try {
+                    connection.setRequestMethod("POST");
+                    connection.setConnectTimeout(TIMEOUT_MS);
+                    connection.setReadTimeout(TIMEOUT_MS);
+                    connection.setUseCaches(false);
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type", "application/json");
+                    connection.setRequestProperty("Authorization", "Bearer " + context.getToken());
+                    try (final OutputStream output = connection.getOutputStream()) {
+                        output.write(requestBody.toString().getBytes(UTF_8));
+                    }
+                    final int statusCode = connection.getResponseCode();
+                    final ByteArrayOutputStream bodyOutput = new ByteArrayOutputStream();
+                    try (final InputStream input = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+                        if (input != null) {
+                            final byte[] buffer = new byte[4096];
+                            int read;
+                            while ((read = input.read(buffer)) != -1) bodyOutput.write(buffer, 0, read);
+                        }
+                    }
+                    return new AbstractMap.SimpleEntry<>(statusCode, new String(bodyOutput.toByteArray(), UTF_8).trim());
+                } finally {
+                    connection.disconnect();
+                }
+            } catch (final Exception e) {
+                throw new CompletionException(e);
+            }
+        }).thenCompose(response -> {
+            if (isSuccessful(response.getKey())) return fetch(flag);
+            logUnsuccessfulResponse(response.getKey(), response.getValue());
+            final CompletableFuture<T> failed = new CompletableFuture<>();
+            failed.completeExceptionally(new IllegalStateException(String.format(
+                    "Feature flag opt request failed with status %s (%s)", response.getKey(), response.getValue()
+            )));
+            return failed;
         });
     }
 
     private <T> CompletableFuture<T> createFetch(final SimpleFeatureFlag<T> flag) {
-        final var requestBody = createRequestBody(flag);
-        final var request = createRequest(CHECK_PATH, requestBody);
-        logger.info("Fetching %s: %s", request.uri(), requestBody.toString());
-        return CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> handleFetchResponse(flag, response));
+        final JsonObject requestBody = createRequestBody(flag);
+        logger.info("Fetching %s: %s", url.resolve(CHECK_PATH), requestBody.toString());
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                final HttpURLConnection connection = (HttpURLConnection) url.resolve(CHECK_PATH).toURL().openConnection();
+                try {
+                    connection.setRequestMethod("POST");
+                    connection.setConnectTimeout(TIMEOUT_MS);
+                    connection.setReadTimeout(TIMEOUT_MS);
+                    connection.setUseCaches(false);
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type", "application/json");
+                    connection.setRequestProperty("Authorization", "Bearer " + context.getToken());
+                    try (final OutputStream output = connection.getOutputStream()) {
+                        output.write(requestBody.toString().getBytes(UTF_8));
+                    }
+                    final int statusCode = connection.getResponseCode();
+                    final ByteArrayOutputStream bodyOutput = new ByteArrayOutputStream();
+                    try (final InputStream input = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
+                        if (input != null) {
+                            final byte[] buffer = new byte[4096];
+                            int read;
+                            while ((read = input.read(buffer)) != -1) bodyOutput.write(buffer, 0, read);
+                        }
+                    }
+                    return handleFetchResponse(flag, statusCode, new String(bodyOutput.toByteArray(), UTF_8).trim());
+                } finally {
+                    connection.disconnect();
+                }
+            } catch (final Exception e) {
+                throw new CompletionException(e);
+            }
+        });
     }
 
     private JsonObject createRequestBody(final SimpleFeatureFlag<?> flag) {
@@ -110,36 +174,22 @@ final class SimpleFeatureFlagService extends SubmissionService implements Featur
         return requestBody;
     }
 
-    private CompletableFuture<HttpResponse<String>> send(final String path, final JsonObject requestBody) {
-        return CLIENT.sendAsync(createRequest(path, requestBody), HttpResponse.BodyHandlers.ofString());
-    }
-
-    private HttpRequest createRequest(final String path, final JsonObject requestBody) {
-        return HttpRequest.newBuilder()
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + context.getToken())
-                .timeout(TIMEOUT)
-                .uri(url.resolve(path))
-                .build();
-    }
-
-    private <T> T handleFetchResponse(final SimpleFeatureFlag<T> flag, final HttpResponse<String> response) {
+    private <T> T handleFetchResponse(final SimpleFeatureFlag<T> flag, final int statusCode, final String body) {
         try {
-            if (!isSuccessful(response)) {
-                logUnsuccessfulResponse(response);
-                throw new IllegalStateException("Unexpected response status: %s (%s)".formatted(response.statusCode(), response.body()));
+            if (statusCode < 200 || statusCode >= 300) {
+                logUnsuccessfulResponse(statusCode, body);
+                throw new IllegalStateException(String.format("Unexpected response status: %s (%s)", statusCode, body));
             }
 
-            final var body = JsonParser.parseString(response.body());
-            final var value = getValue(flag, body);
-            logger.info("Fetch returned body: %s (value: %s)", body, value);
+            final var json = JsonParser.parseString(body);
+            final var value = getValue(flag, json);
+            logger.info("Fetch returned body: %s (value: %s)", json, value);
             flag.setLastFetch(System.currentTimeMillis());
             flag.setValue(value);
             return value;
         } catch (final JsonParseException e) {
-            logger.error("Unexpected response body: %s (%s)", e, response.body(), response.statusCode());
-            throw new IllegalStateException("Unexpected response body: %s (%s)".formatted(response.body(), response.statusCode()), e);
+            logger.error("Unexpected response body: %s (%s)", e, body, statusCode);
+            throw new IllegalStateException(String.format("Unexpected response body: %s (%s)", body, statusCode), e);
         }
     }
 
@@ -233,15 +283,11 @@ final class SimpleFeatureFlagService extends SubmissionService implements Featur
         fetchesInProgress.clear();
     }
 
-    private static boolean isSuccessful(final HttpResponse<?> response) {
-        final var statusCode = response.statusCode();
+    private static boolean isSuccessful(final int statusCode) {
         return statusCode >= 200 && statusCode < 300;
     }
 
-    private void logUnsuccessfulResponse(final HttpResponse<?> response) {
-        final var statusCode = response.statusCode();
-        final var body = response.body();
-
+    private void logUnsuccessfulResponse(final int statusCode, final String body) {
         if (statusCode >= 300 && statusCode < 400) {
             logger.warn("Received redirect response from %s server: %s (%s)", serverType(), statusCode, body);
         } else if (statusCode >= 400 && statusCode < 500) {

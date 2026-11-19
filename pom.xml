@@ -69,8 +69,6 @@
 
         <!-- Set to false by modules whose jar is downgraded to Java 8. -->
         <faststats.downgrade.skip>true</faststats.downgrade.skip>
-        <!-- Package prefix for the shaded JvmDowngrader API stubs (overridden per module). -->
-        <faststats.downgrade.prefix>dev/faststats/jvmdg</faststats.downgrade.prefix>
         <jvmdowngrader.version>2.0.1</jvmdowngrader.version>
     </properties>
 
@@ -277,31 +275,6 @@
                             </arguments>
                         </configuration>
                     </execution>
-                    <execution>
-                        <id>jvmshade</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <skip>${faststats.downgrade.skip}</skip>
-                            <executable>${java.home}/bin/java</executable>
-                            <workingDirectory>${project.build.directory}</workingDirectory>
-                            <longModulepath>false</longModulepath>
-                            <arguments>
-                                <argument>-jar</argument>
-                                <argument>${project.build.directory}/jvmdowngrader.jar</argument>
-                                <argument>--classVersion</argument>
-                                <argument>52</argument>
-                                <argument>shade</argument>
-                                <argument>--prefix</argument>
-                                <argument>${faststats.downgrade.prefix}</argument>
-                                <argument>--target</argument>
-                                <argument>${project.build.directory}/${project.build.finalName}-downgraded.jar</argument>
-                                <argument>${project.build.directory}/${project.build.finalName}-shaded.jar</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
                 </executions>
             </plugin>
             <plugin>
@@ -320,7 +293,7 @@
                             <target>
                                 <move file="${project.build.directory}/${project.build.finalName}.jar"
                                       tofile="${project.build.directory}/${project.build.finalName}-pre-downgrade.jar"/>
-                                <move file="${project.build.directory}/${project.build.finalName}-shaded.jar"
+                                <move file="${project.build.directory}/${project.build.finalName}-downgraded.jar"
                                       tofile="${project.build.directory}/${project.build.finalName}.jar"/>
                                 <delete file="${project.build.directory}/${project.build.finalName}-downgraded.jar"/>
                                 <delete file="${project.build.directory}/${project.build.finalName}-pre-downgrade.jar"/>

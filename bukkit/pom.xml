@@ -16,7 +16,6 @@
     <properties>
         <!-- Published as a Java 8 jar so old servers can load it. -->
         <faststats.downgrade.skip>false</faststats.downgrade.skip>
-        <faststats.downgrade.prefix>dev/faststats/bukkit/jvmdg</faststats.downgrade.prefix>
     </properties>
 
     <repositories>

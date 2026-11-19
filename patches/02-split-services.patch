@@ -9,7 +9,41 @@
   *         .build();
   *
   * @Override
-@@ -160,7 +160,7 @@
+@@ -115,13 +115,15 @@
+             this.plugin = plugin;
+             final var server = plugin.getServer();
+ 
+-            this.serverVersion = server.getVersion().split("\\(MC: |\\)", 2)[0].strip();
++            this.serverVersion = server.getVersion().split("\\(MC: |\\)", 2)[0].trim();
+             this.pluginVersion = tryOrEmpty(() -> plugin.getPluginMeta().getVersion())
+                     .orElseGet(() -> plugin.getDescription().getVersion());
+-            this.minecraftVersion = tryOrEmpty(() -> server.getMinecraftVersion())
+-                    .or(() -> tryOrEmpty(() -> server.getBukkitVersion().split("-", 2)[0]))
+-                    .or(() -> tryOrEmpty(() -> server.getVersion().split("\\(MC: |\\)", 3)[1]))
+-                    .orElse(serverVersion);
++            Optional<String> minecraftVersion = tryOrEmpty(() -> server.getMinecraftVersion());
++            if (!minecraftVersion.isPresent())
++                minecraftVersion = tryOrEmpty(() -> server.getBukkitVersion().split("-", 2)[0]);
++            if (!minecraftVersion.isPresent())
++                minecraftVersion = tryOrEmpty(() -> server.getVersion().split("\\(MC: |\\)", 3)[1]);
++            this.minecraftVersion = minecraftVersion.orElse(serverVersion);
+             this.serverType = server.getName();
+         }
+ 
+@@ -136,9 +138,9 @@
+ 
+         private boolean checkOnlineMode() {
+             final var server = plugin.getServer();
+-            return tryOrEmpty(() -> server.getServerConfig().isProxyOnlineMode())
+-                    .or(() -> tryOrEmpty(this::isProxyOnlineMode))
+-                    .orElseGet(server::getOnlineMode);
++            Optional<Boolean> onlineMode = tryOrEmpty(() -> server.getServerConfig().isProxyOnlineMode());
++            if (!onlineMode.isPresent()) onlineMode = tryOrEmpty(this::isProxyOnlineMode);
++            return onlineMode.orElseGet(server::getOnlineMode);
+         }
+ 
+         @SuppressWarnings("removal")
+@@ -160,7 +162,7 @@
                  return plugin.getServer().getOnlinePlayers().size();
              } catch (final Throwable t) {
                  context.getLoggerFactory().getLogger(FastStatsBukkit.class).error("Failed to get player count", t);
@@ -20,7 +54,22 @@
          }
 --- a/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
 +++ b/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
-@@ -14,8 +14,6 @@
+@@ -8,14 +8,20 @@
+ import org.bukkit.event.Listener;
+ import org.bukkit.plugin.Plugin;
+ 
+-record PaperEventListener(Plugin plugin, FastStatsContext context) implements Listener {
++final class PaperEventListener implements Listener {
++    private final Plugin plugin;
++    private final FastStatsContext context;
++
++    PaperEventListener(final Plugin plugin, final FastStatsContext context) {
++        this.plugin = plugin;
++        this.context = context;
++    }
++
+     @EventHandler(priority = EventPriority.MONITOR)
+     public void onServerException(final ServerExceptionEvent event) {
          if (!(event.getException() instanceof final ServerPluginException exception)) return;
          if (!exception.getResponsiblePlugin().equals(plugin)) return;
          final var report = exception.getCause() != null ? exception.getCause() : exception;
@@ -1199,7 +1248,19 @@
 -}
 --- a/core/src/main/java/dev/faststats/SimpleContext.java
 +++ b/core/src/main/java/dev/faststats/SimpleContext.java
-@@ -64,8 +64,7 @@
+@@ -8,9 +8,11 @@
+ import org.jetbrains.annotations.Contract;
+ import org.jspecify.annotations.Nullable;
+ 
++import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
+ import java.io.UncheckedIOException;
+ import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.List;
+ import java.util.Optional;
+ import java.util.Properties;
+@@ -64,8 +66,7 @@
      private volatile boolean submitting = false;
  
      private final @Nullable SimpleMetrics metrics;
@@ -1209,7 +1270,18 @@
  
      private SimpleContext(final Builder builder, @Token final @Nullable String token) {
          this.loggerFactory = require(builder.loggerFactory, "loggerFactory");
-@@ -91,19 +90,19 @@
+@@ -80,8 +81,8 @@
+         this.clientApplication = builder.clientApplication;
+         this.scheduler = builder.scheduler;
+         this.defaultMetrics = builder.defaultMetrics;
+-        this.readyHooks = List.copyOf(builder.readyHooks);
+-        this.shutdownHooks = List.copyOf(builder.shutdownHooks);
++        this.readyHooks = Collections.unmodifiableList(new ArrayList<>(builder.readyHooks));
++        this.shutdownHooks = Collections.unmodifiableList(new ArrayList<>(builder.shutdownHooks));
+ 
+         if (!enabled) {
+             logger.warn("No valid FastStats token provided for %s, FastStats is disabled. Pass a token to the factory or inject it at build time into %s",
+@@ -91,19 +92,19 @@
          this.metrics = enabled && builder.metrics != null
                  ? (SimpleMetrics) builder.metrics.apply(new SimpleMetrics.Factory(this))
                  : null;
@@ -1225,7 +1297,7 @@
 +                services.add(factory.apply(this));
 +            }
 +        }
-+        this.services = List.copyOf(services);
++        this.services = Collections.unmodifiableList(new ArrayList<>(services));
  
          if (enabled) {
 -            logger.info("Created FastStats context for %s using %s (metrics=%s, error-tracking=%s, feature-flags=%s)",
@@ -1238,7 +1310,7 @@
              );
          }
      }
-@@ -178,17 +177,26 @@
+@@ -178,17 +179,26 @@
  
      @Override
      @Contract(pure = true)
@@ -1271,7 +1343,7 @@
          return submitting;
      }
  
-@@ -209,7 +217,7 @@
+@@ -209,7 +219,7 @@
      public synchronized void startSubmission() {
          if (!enabled || submitting) return;
          try {
@@ -1280,7 +1352,7 @@
              if (metrics != null) metrics.startSubmitting();
              this.submitting = true;
          } catch (final Throwable t) {
-@@ -276,7 +284,8 @@
+@@ -276,7 +286,8 @@
       * Used by both metrics and error reports, so the platform data is present
       * even when no metrics instance is configured.
       */
@@ -1290,7 +1362,7 @@
          metrics.addProperty("client", clientApplication);
          metrics.addProperty("core_count", coreCount);
          metrics.addProperty("java_vendor", javaVendor);
-@@ -287,12 +296,25 @@
+@@ -287,12 +298,25 @@
          appendDefaultMetrics(metrics);
      }
  
@@ -1317,7 +1389,18 @@
          }
      }
  
-@@ -315,7 +337,8 @@
+@@ -306,8 +330,8 @@
+             try {
+                 hook.accept(this);
+             } catch (final Throwable t) {
+-                logger.print(Logger.LogLevel.ERROR, t, "Failed to make the FastStats context for %s ready: %s"
+-                        .formatted(projectName, t.getMessage()));
++                logger.print(Logger.LogLevel.ERROR, t, String.format(
++                        "Failed to make the FastStats context for %s ready: %s", projectName, t.getMessage()));
+                 return;
+             }
+         }
+@@ -315,7 +339,8 @@
      }
  
      @Async.Schedule
@@ -1327,7 +1410,7 @@
          if (scheduler != null) {
              cancellations.add(scheduler.scheduleAtFixedRate(task, initialDelay, period, unit));
              return;
-@@ -334,8 +357,13 @@
+@@ -334,8 +359,13 @@
      @Override
      public void shutdown() {
          // flushes pending data if submission is active
@@ -1343,7 +1426,20 @@
          if (metrics != null) metrics.shutdown();
          stopSubmission();
          this.ready = false;
-@@ -500,19 +528,14 @@
+@@ -383,7 +413,11 @@
+         final var path = TOKEN_RESOURCE_DIRECTORY + id + ".token";
+         try (final var stream = loader.getResourceAsStream(path)) {
+             if (stream == null) return null;
+-            final var token = new String(stream.readAllBytes(), UTF_8).strip();
++            final ByteArrayOutputStream output = new ByteArrayOutputStream();
++            final byte[] buffer = new byte[1024];
++            int read;
++            while ((read = stream.read(buffer)) != -1) output.write(buffer, 0, read);
++            final String token = new String(output.toByteArray(), UTF_8).trim();
+             return token.matches(Token.PATTERN) ? token : null;
+         } catch (final IOException e) {
+             return null;
+@@ -500,19 +534,14 @@
          }
  
          @Override
@@ -1365,7 +1461,7 @@
      }
  
      /**
-@@ -542,8 +565,7 @@
+@@ -542,8 +571,7 @@
          private final List<Consumer<SimpleContext>> buildHooks = new ArrayList<>(1);
  
          private @Nullable Function<Metrics.Factory, Metrics> metrics;
@@ -1375,7 +1471,7 @@
  
          /**
           * Creates a new context builder.
-@@ -695,8 +717,8 @@
+@@ -695,8 +723,8 @@
  
          @Override
          @Contract(value = "_ -> this", mutates = "this")
@@ -1386,7 +1482,7 @@
              return this;
          }
  
-@@ -708,17 +730,10 @@
+@@ -708,17 +736,10 @@
          }
  
          @Override
@@ -2118,7 +2214,24 @@
 -}
 --- a/core/src/main/java/dev/faststats/SimpleMetrics.java
 +++ b/core/src/main/java/dev/faststats/SimpleMetrics.java
-@@ -70,7 +70,7 @@
+@@ -8,6 +8,7 @@
+ import org.jspecify.annotations.Nullable;
+ 
+ import java.net.URI;
++import java.util.Collections;
+ import java.util.HashSet;
+ import java.util.Set;
+ import java.util.concurrent.TimeUnit;
+@@ -27,7 +28,7 @@
+     @Contract(mutates = "io")
+     private SimpleMetrics(final Factory factory) {
+         super(factory.context);
+-        this.metrics = Set.copyOf(factory.metrics);
++        this.metrics = Collections.unmodifiableSet(new HashSet<>(factory.metrics));
+         this.flush = factory.flush;
+     }
+ 
+@@ -70,7 +71,7 @@
                  });
              } catch (final Throwable t) {
                  logger.error("Failed to append custom metric data: %s", t, metric.getId());
@@ -2243,19 +2356,34 @@
 -}
 --- a/core/src/main/java/dev/faststats/SubmissionService.java
 +++ b/core/src/main/java/dev/faststats/SubmissionService.java
-@@ -18,9 +18,9 @@
+@@ -6,29 +6,24 @@
+ 
+ import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
+ import java.net.ConnectException;
++import java.net.HttpURLConnection;
+ import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import java.net.URISyntaxException;
+-import java.net.http.HttpClient;
+-import java.net.http.HttpRequest;
+-import java.net.http.HttpResponse;
+-import java.time.Duration;
+ import java.util.zip.GZIPOutputStream;
  
  import static java.nio.charset.StandardCharsets.UTF_8;
  
 -abstract class SubmissionService {
-+public abstract class SubmissionService {
-     protected static final Duration TIMEOUT = Duration.ofSeconds(3);
+-    protected static final Duration TIMEOUT = Duration.ofSeconds(3);
 -    protected static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-             .connectTimeout(TIMEOUT)
-             .version(HttpClient.Version.HTTP_1_1)
-             .build();
-@@ -28,7 +28,7 @@
+-            .connectTimeout(TIMEOUT)
+-            .version(HttpClient.Version.HTTP_1_1)
+-            .build();
++public abstract class SubmissionService {
++    protected static final int TIMEOUT_MS = 3000;
+ 
      protected final Logger logger;
      protected final SimpleContext context;
  
@@ -2264,21 +2392,115 @@
          this.context = context;
          this.logger = context.getLoggerFactory().getLogger(getClass());
      }
-@@ -97,12 +97,12 @@
+@@ -51,32 +46,54 @@
+             final String submissionName
+     ) {
+         try {
+-            final var compressed = compress(data.toString());
++            final byte[] compressed = compress(data.toString());
+             logger.info("Sending %s to: %s (%s bytes)\n%s", submissionName, url, compressed.length, data);
+ 
+-            final var response = HTTP_CLIENT.send(
+-                    createSubmissionRequest(url, compressed),
+-                    HttpResponse.BodyHandlers.ofString(UTF_8)
+-            );
+-
+-            if (isSuccessful(response)) {
+-                final var warnings = hasWarnings(response.body());
+-                final var level = warnings ? Logger.LogLevel.WARN : Logger.LogLevel.INFO;
+-                logger.debug(level, "%s submitted successfully with status code: %s (%s)", null,
+-                        capitalize(submissionName), response.statusCode(), response.body());
+-                return true;
++            final HttpURLConnection connection = (HttpURLConnection) url.toURL().openConnection();
++            try {
++                connection.setRequestMethod("POST");
++                connection.setConnectTimeout(TIMEOUT_MS);
++                connection.setReadTimeout(TIMEOUT_MS);
++                connection.setInstanceFollowRedirects(false);
++                connection.setUseCaches(false);
++                connection.setDoOutput(true);
++                connection.setFixedLengthStreamingMode(compressed.length);
++                connection.setRequestProperty("Content-Encoding", "gzip");
++                connection.setRequestProperty("Content-Type", "application/octet-stream");
++                connection.setRequestProperty("Authorization", "Bearer " + context.getToken());
++                connection.setRequestProperty("User-Agent", context.getSdkInfo().getUserAgent());
++                try (final OutputStream output = connection.getOutputStream()) {
++                    output.write(compressed);
++                }
++
++                final int statusCode = connection.getResponseCode();
++                final ByteArrayOutputStream bodyOutput = new ByteArrayOutputStream();
++                try (final InputStream input = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
++                    if (input != null) {
++                        final byte[] buffer = new byte[4096];
++                        int read;
++                        while ((read = input.read(buffer)) != -1) bodyOutput.write(buffer, 0, read);
++                    }
++                }
++                final String body = new String(bodyOutput.toByteArray(), UTF_8).trim();
++
++                if (statusCode >= 200 && statusCode < 300) {
++                    final boolean warnings = hasWarnings(body);
++                    final Logger.LogLevel level = warnings ? Logger.LogLevel.WARN : Logger.LogLevel.INFO;
++                    logger.debug(level, "%s submitted successfully with status code: %s (%s)", null,
++                            capitalize(submissionName), statusCode, body);
++                    return true;
++                }
++                logUnsuccessfulResponse(statusCode, body);
++            } finally {
++                connection.disconnect();
+             }
+-            logUnsuccessfulResponse(response);
+         } catch (final ConnectException t) {
+             logger.error("Failed to connect to %s server: %s", null, serverType(), url);
++        } catch (final SocketTimeoutException t) {
++            logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
+         } catch (final IOException t) {
+-            // The Java 8 API stub reports connect timeouts as IOException/SocketTimeoutException;
+-            // the JDK client uses HttpConnectTimeoutException, which cannot be named on Java 8.
+-            if (t instanceof SocketTimeoutException || t.getClass().getSimpleName().contains("Timeout")) {
+-                logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
+-            } else {
+-                logger.error("Failed to submit %s", t, submissionName);
+-            }
++            logger.error("Failed to submit %s", t, submissionName);
+         } catch (final Throwable t) {
+             logger.error("Failed to submit %s", t, submissionName);
+         }
+@@ -97,15 +114,7 @@
          return Character.toUpperCase(value.charAt(0)) + value.substring(1);
      }
  
 -    protected static boolean isSuccessful(final HttpResponse<?> response) {
-+    private static boolean isSuccessful(final HttpResponse<?> response) {
-         final var statusCode = response.statusCode();
-         return statusCode >= 200 && statusCode < 300;
-     }
- 
+-        final var statusCode = response.statusCode();
+-        return statusCode >= 200 && statusCode < 300;
+-    }
+-
 -    protected void logUnsuccessfulResponse(final HttpResponse<?> response) {
-+    private void logUnsuccessfulResponse(final HttpResponse<?> response) {
-         final var statusCode = response.statusCode();
-         final var body = response.body();
- 
+-        final var statusCode = response.statusCode();
+-        final var body = response.body();
+-
++    private void logUnsuccessfulResponse(final int statusCode, final String body) {
+         if (statusCode >= 300 && statusCode < 400) {
+             logger.warn("Received redirect response from %s server: %s (%s)", serverType(), statusCode, body);
+         } else if (statusCode >= 400 && statusCode < 500) {
+@@ -125,16 +134,4 @@
+             return byteOutput.toByteArray();
+         }
+     }
+-
+-    private HttpRequest createSubmissionRequest(final URI url, final byte[] compressed) {
+-        return HttpRequest.newBuilder()
+-                .POST(HttpRequest.BodyPublishers.ofByteArray(compressed))
+-                .header("Content-Encoding", "gzip")
+-                .header("Content-Type", "application/octet-stream")
+-                .header("Authorization", "Bearer " + context.getToken())
+-                .header("User-Agent", context.getSdkInfo().getUserAgent())
+-                .timeout(TIMEOUT)
+-                .uri(url)
+-                .build();
+-    }
+ }
 --- a/core/src/main/java/dev/faststats/TrackedError.java
 +++ /dev/null
 @@ -1,96 +0,0 @@
@@ -3646,3 +3868,112 @@
          assertDoesNotThrow(context::ready);
          assertDoesNotThrow(context::shutdown);
      }
+--- a/config/src/main/java/dev/faststats/config/SimpleConfig.java
++++ b/config/src/main/java/dev/faststats/config/SimpleConfig.java
+@@ -10,6 +10,7 @@
+ import java.io.IOException;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
++import java.util.Collections;
+ import java.util.Properties;
+ import java.util.UUID;
+ import java.util.concurrent.atomic.AtomicBoolean;
+@@ -313,9 +314,9 @@
+             for (final var s : split) if (s.length() > separatorLength) separatorLength = s.length();
+ 
+             final var logger = loggerFactory.getLogger(getClass());
+-            logger.print(Logger.LogLevel.INFO, null, "-".repeat(separatorLength));
++            logger.print(Logger.LogLevel.INFO, null, String.join("", Collections.nCopies(separatorLength, "-")));
+             for (final var s : split) logger.print(Logger.LogLevel.INFO, null, s);
+-            logger.print(Logger.LogLevel.INFO, null, "-".repeat(separatorLength));
++            logger.print(Logger.LogLevel.INFO, null, String.join("", Collections.nCopies(separatorLength, "-")));
+ 
+             System.setProperty("faststats.first-run", "true");
+             return false;
+--- a/core/src/main/java/dev/faststats/SimpleSdkInfo.java
++++ b/core/src/main/java/dev/faststats/SimpleSdkInfo.java
+@@ -2,13 +2,17 @@
+ 
+ import org.jspecify.annotations.Nullable;
+ 
++import java.util.Iterator;
+ import java.util.Optional;
+ import java.util.ServiceLoader;
+ 
+ final class SimpleSdkInfo implements SdkInfo {
+-    private static final UserAgentProvider userAgentProvider = ServiceLoader.load(UserAgentProvider.class)
+-            .findFirst()
+-            .orElseGet(SimpleSdkInfo.SimpleUserAgentProvider::new);
++    private static final UserAgentProvider userAgentProvider;
++
++    static {
++        final Iterator<UserAgentProvider> iterator = ServiceLoader.load(UserAgentProvider.class).iterator();
++        userAgentProvider = iterator.hasNext() ? iterator.next() : new SimpleUserAgentProvider();
++    }
+ 
+     private final @Nullable String buildId;
+     private final String name;
+@@ -16,8 +20,8 @@
+     private final String version;
+ 
+     SimpleSdkInfo(final String name, final String version, @Nullable final String buildId) throws IllegalArgumentException {
+-        if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
+-        if (version.isBlank()) throw new IllegalArgumentException("version must not be blank");
++        if (name.trim().isEmpty()) throw new IllegalArgumentException("name must not be blank");
++        if (version.trim().isEmpty()) throw new IllegalArgumentException("version must not be blank");
+         this.name = name;
+         this.version = version;
+         this.buildId = buildId;
+--- a/core/src/main/java/dev/faststats/internal/Logger.java
++++ b/core/src/main/java/dev/faststats/internal/Logger.java
+@@ -19,7 +19,7 @@
+     }
+ 
+     default void debug(final LogLevel level, @PrintFormat final String message, @Nullable final Throwable t, final Object... args) {
+-        if (factory().isDebug()) print(level, t, "[" + caller() + "] " + message.formatted(args));
++        if (factory().isDebug()) print(level, t, "[" + caller() + "] " + String.format(message, args));
+     }
+ 
+     String caller();
+--- a/core/src/main/java/dev/faststats/SimpleAttributes.java
++++ b/core/src/main/java/dev/faststats/SimpleAttributes.java
+@@ -2,10 +2,21 @@
+ 
+ import com.google.gson.JsonPrimitive;
+ 
++import java.util.Objects;
+ import java.util.concurrent.ConcurrentHashMap;
+ import java.util.function.BiConsumer;
+ 
+-record SimpleAttributes(ConcurrentHashMap<String, JsonPrimitive> attributes) implements Attributes {
++final class SimpleAttributes implements Attributes {
++    private final ConcurrentHashMap<String, JsonPrimitive> attributes;
++
++    SimpleAttributes(final ConcurrentHashMap<String, JsonPrimitive> attributes) {
++        this.attributes = attributes;
++    }
++
++    ConcurrentHashMap<String, JsonPrimitive> attributes() {
++        return attributes;
++    }
++
+     @Override
+     public Attributes put(final String key, final String value) {
+         attributes.put(key, new JsonPrimitive(value));
+@@ -40,4 +51,16 @@
+     public void forEachPrimitive(final BiConsumer<String, JsonPrimitive> action) {
+         attributes.forEach(action);
+     }
++
++    @Override
++    public boolean equals(final Object o) {
++        if (this == o) return true;
++        if (!(o instanceof SimpleAttributes)) return false;
++        return Objects.equals(attributes, ((SimpleAttributes) o).attributes);
++    }
++
++    @Override
++    public int hashCode() {
++        return Objects.hashCode(attributes);
++    }
+ }

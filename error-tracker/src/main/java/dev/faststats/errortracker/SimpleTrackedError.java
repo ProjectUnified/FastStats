@@ -33,12 +33,39 @@ final class SimpleTrackedError implements TrackedError {
         return new SimpleThrowableSnapshot(error.getClass(), message, cause, trace);
     }
 
-    record SimpleThrowableSnapshot(
-            Class<?> type,
-            @Nullable String message,
-            @Nullable ThrowableSnapshot cause,
-            StackTraceElement... stackTraces
-    ) implements ThrowableSnapshot {
+    static final class SimpleThrowableSnapshot implements ThrowableSnapshot {
+        private final Class<?> type;
+        private final @Nullable String message;
+        private final @Nullable ThrowableSnapshot cause;
+        private final StackTraceElement[] stackTraces;
+
+        SimpleThrowableSnapshot(
+                final Class<?> type,
+                final @Nullable String message,
+                final @Nullable ThrowableSnapshot cause,
+                final StackTraceElement... stackTraces
+        ) {
+            this.type = type;
+            this.message = message;
+            this.cause = cause;
+            this.stackTraces = stackTraces;
+        }
+
+        @Override
+        public Class<?> type() {
+            return type;
+        }
+
+        @Override
+        public @Nullable String message() {
+            return message;
+        }
+
+        @Override
+        public @Nullable ThrowableSnapshot cause() {
+            return cause;
+        }
+
         @Override
         public StackTraceElement[] stackTraces() {
             return stackTraces.clone();

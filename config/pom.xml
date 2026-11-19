@@ -16,7 +16,6 @@
     <properties>
         <!-- Published as a Java 8 jar; sources stay upstream. -->
         <faststats.downgrade.skip>false</faststats.downgrade.skip>
-        <faststats.downgrade.prefix>dev/faststats/config/jvmdg</faststats.downgrade.prefix>
     </properties>
 
     <dependencies>

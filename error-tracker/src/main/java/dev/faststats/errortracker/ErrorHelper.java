@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import dev.faststats.Attributes;
 import org.jspecify.annotations.Nullable;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 final class ErrorHelper {
     public static final int MAX_MESSAGE_LENGTH = 1000;
@@ -111,7 +113,7 @@ final class ErrorHelper {
     private static List<String> collapseStackTrace(final StackTraceElement[] trace) {
         final var lines = Arrays.stream(trace)
                 .map(StackTraceElement::toString)
-                .toList();
+                .collect(Collectors.toList());
 
         return collapseRepeatingPattern(lines);
     }
@@ -156,16 +158,21 @@ final class ErrorHelper {
         return result;
     }
 
-    private static final StackWalker STACK_WALKER = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
-
-    public static @Nullable ClassLoader callerClassLoader() {
-        return STACK_WALKER.walk(frames -> frames
-                        .map(StackWalker.StackFrame::getDeclaringClass)
-                        .filter(type -> type != ErrorHelper.class && type != ErrorTracker.class)
-                        .filter(type -> type.getClassLoader() != null)
-                        .findFirst())
-                .orElse(ErrorTracker.class)
-                .getClassLoader();
+        public static @Nullable ClassLoader callerClassLoader() {
+        try {
+            final Class<?>[] context = new SecurityManager() {
+                Class<?>[] get() {
+                    return getClassContext();
+                }
+            }.get();
+            for (final Class<?> type : context) {
+                if (type.getName().startsWith(ErrorHelper.class.getName())) continue;
+                if (type.getName().equals(ErrorTracker.class.getName())) continue;
+                if (type.getClassLoader() != null) return type.getClassLoader();
+            }
+        } catch (final Throwable ignored) {
+        }
+        return ErrorTracker.class.getClassLoader();
     }
 
     public static boolean isSameLoader(@Nullable final Thread thread, final ClassLoader loader, final Throwable error) {
@@ -196,7 +203,7 @@ final class ErrorHelper {
     private static boolean isRelatedContextLoader(@Nullable final ClassLoader contextLoader, final ClassLoader loader) {
         if (contextLoader == null) return true;
         if (contextLoader == ClassLoader.getSystemClassLoader()) return true;
-        if (contextLoader == ClassLoader.getPlatformClassLoader()) return true;
+        if (contextLoader == ClassLoader.getSystemClassLoader().getParent()) return true;
         return isSameClassLoader(contextLoader, loader) || isSameClassLoader(loader, contextLoader);
     }
 
@@ -252,14 +259,14 @@ final class ErrorHelper {
     }
 
     private static List<Map.Entry<Pattern, String>> defaultAnonymizationEntries() {
-        final var entries = new ArrayList<>(Arrays.asList(
-                Map.entry(ipv4Pattern(), "[IP hidden]"),
-                Map.entry(ipv6Pattern(), "[IP hidden]"),
-                Map.entry(userHomePathPattern(), "$1$2$3[username hidden]"),
-                Map.entry(discordWebhookPattern(), "$1[id hidden]/[token hidden]"),
-                Map.entry(jdbcUrlPattern(), "$1[password hidden]$2")
+        final var entries = new ArrayList<Map.Entry<Pattern, String>>(Arrays.asList(
+                new AbstractMap.SimpleImmutableEntry<>(ipv4Pattern(), "[IP hidden]"),
+                new AbstractMap.SimpleImmutableEntry<>(ipv6Pattern(), "[IP hidden]"),
+                new AbstractMap.SimpleImmutableEntry<>(userHomePathPattern(), "$1$2$3[username hidden]"),
+                new AbstractMap.SimpleImmutableEntry<>(discordWebhookPattern(), "$1[id hidden]/[token hidden]"),
+                new AbstractMap.SimpleImmutableEntry<>(jdbcUrlPattern(), "$1[password hidden]$2")
         ));
-        usernamePattern().ifPresent(pattern -> entries.add(Map.entry(pattern, "[username hidden]")));
+        usernamePattern().ifPresent(pattern -> entries.add(new AbstractMap.SimpleImmutableEntry<>(pattern, "[username hidden]")));
         return entries;
     }
 

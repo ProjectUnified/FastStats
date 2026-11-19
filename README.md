@@ -83,12 +83,8 @@ Upstream compiles with Java 17+ language features (sealed types, records, patter
 [JvmDowngrader](https://github.com/unimined/JvmDowngrader):
 
 - `module-info.java` is dropped while copying the sources (Maven classpath build, no JPMS).
-- The Maven `package` phase runs JvmDowngrader, then shades only the Java API stubs the jar uses
-  (`java.net.http` is implemented on top of `HttpURLConnection`, `List.of`, `String.formatted`, …).
-  The stubs are relocated under each module's package (`dev.faststats.jvmdg`,
-  `dev.faststats.config.jvmdg`, `dev.faststats.errortracker.jvmdg`, …) so modules do not collide.
-- Patch `01-java8-http-exception` replaces the `HttpConnectTimeoutException` catch with
-  `IOException`; the JvmDowngrader stub does not provide that exception class.
+- The Maven `package` phase only runs JvmDowngrader's syntax/bytecode downgrade. The Java 8 modules
+  use Java 8 APIs directly, so no Java API stubs are bundled in the jars.
 - `bukkit` is compiled against the modern Paper API but still emits Java 8 bytecode; modern API
   calls are already guarded by upstream. Old Spigot servers can therefore load it.
 - The two fork modules use the Java 8 downgrade too, so `ErrorTracker`/`FeatureFlag` support works

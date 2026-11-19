@@ -5,6 +5,7 @@ import dev.faststats.Attributes;
 import org.jetbrains.annotations.VisibleForTesting;
 import org.jspecify.annotations.Nullable;
 
+import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -97,7 +98,7 @@ final class SimpleErrorTracker implements ErrorTracker {
 
     @Override
     public ErrorTracker anonymize(final Pattern pattern, final String replacement) {
-        anonymizationEntries.add(Map.entry(pattern, replacement));
+        anonymizationEntries.add(new AbstractMap.SimpleImmutableEntry<>(pattern, replacement));
         return this;
     }
 

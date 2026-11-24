@@ -71,7 +71,7 @@ versions in [`stonecutter.properties.toml`](./mod-platforms/fabric/stonecutter.p
 | Edit code | `gitfile sync`, edit any module source, then `gitfile update` |
 | Add a file | create it under a module `src/`, then `gitfile update` (writes a `/dev/null` patch) |
 | Delete a file | `rm` it, then `gitfile update` (writes a deletion patch) |
-| Drop a change | restore the file to its pristine content, then `gitfile update` (the patch is removed) |
+| Drop a change | `gitfile revert <file-or-dir>` (restores from `.vanilla/` and removes its patch) |
 | Verify from scratch | `gitfile sync && mvn clean install` |
 | Export a combined patch for upstream | `gitfile export` (`faststats-fork.patch`) |
 | Upgrade upstream | re-resolve `git ls-remote https://github.com/faststats-dev/faststats-java.git HEAD` into `upstream.ref`, then `gitfile sync`; conflicting files get merge markers/`.rej`, resolve and run `gitfile update` |

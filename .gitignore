@@ -113,7 +113,7 @@ buildNumber.properties
 # Common working directory
 run/
 
-# Generated module sources (populated by scripts/sync-upstream.sh, never committed)
+# Generated module sources (populated by `gitfile sync`, never committed)
 core/src/
 config/src/
 bukkit/src/
@@ -124,11 +124,14 @@ nukkit/src/
 sponge/src/
 velocity/src/
 
-# Quilt patch state (see scripts/; patches/series is the order truth)
-.pc/
+# Pristine split baseline (populated by `gitfile sync`, never committed)
+.vanilla/
 
-# Pinned upstream checkout (populated by scripts/sync-upstream.sh)
+# Pinned upstream checkout (populated by `gitfile sync`)
 .upstream/
+
+# Combined patch from `gitfile export`
+faststats-fork.patch
 
 # JvmDowngrader API cache
 .jvmdg/

@@ -1,0 +1,11 @@
+--- a/core/src/main/java/dev/faststats/internal/Logger.java
++++ b/core/src/main/java/dev/faststats/internal/Logger.java
+@@ -19,7 +19,7 @@ public sealed interface Logger permits PlatformLoggerFactory.PlatformLogger {
+     }
+ 
+     default void debug(final LogLevel level, @PrintFormat final String message, @Nullable final Throwable t, final Object... args) {
+-        if (factory().isDebug()) print(level, t, "[" + caller() + "] " + message.formatted(args));
++        if (factory().isDebug()) print(level, t, "[" + caller() + "] " + String.format(message, args));
+     }
+ 
+     String caller();

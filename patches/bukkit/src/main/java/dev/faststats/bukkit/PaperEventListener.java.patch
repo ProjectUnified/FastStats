@@ -1,0 +1,12 @@
+--- a/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
++++ b/bukkit/src/main/java/dev/faststats/bukkit/PaperEventListener.java
+@@ -14,8 +14,6 @@ record PaperEventListener(Plugin plugin, FastStatsContext context) implements Li
+         if (!(event.getException() instanceof final ServerPluginException exception)) return;
+         if (!exception.getResponsiblePlugin().equals(plugin)) return;
+         final var report = exception.getCause() != null ? exception.getCause() : exception;
+-        context.errorTrackerService().ifPresent(service -> {
+-            service.globalErrorTracker().trackError(report).handled(false);
+-        });
++        context.trackError(report);
+     }
+ }

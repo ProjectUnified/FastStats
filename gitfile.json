@@ -1,0 +1,21 @@
+{
+  "upstream": "https://github.com/faststats-dev/faststats-java.git",
+  "refFile": "upstream.ref",
+  "patches": "patches",
+  "baselineDir": ".vanilla",
+  "upstreamDir": ".upstream",
+  "modules": [
+    "core",
+    "config",
+    "bukkit",
+    "bungeecord",
+    "hytale",
+    "minestom",
+    "nukkit",
+    "sponge",
+    "velocity"
+  ],
+  "delete": ["*/src/**/module-info.java"],
+  "overlays": "overlays",
+  "exportFile": "faststats-fork.patch"
+}

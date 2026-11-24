@@ -1,0 +1,22 @@
+--- a/config/src/main/java/dev/faststats/config/SimpleConfig.java
++++ b/config/src/main/java/dev/faststats/config/SimpleConfig.java
+@@ -10,6 +10,7 @@ import org.jspecify.annotations.Nullable;
+ import java.io.IOException;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
++import java.util.Collections;
+ import java.util.Properties;
+ import java.util.UUID;
+ import java.util.concurrent.atomic.AtomicBoolean;
+@@ -313,9 +314,9 @@ public final class SimpleConfig implements Config {
+             for (final var s : split) if (s.length() > separatorLength) separatorLength = s.length();
+ 
+             final var logger = loggerFactory.getLogger(getClass());
+-            logger.print(Logger.LogLevel.INFO, null, "-".repeat(separatorLength));
++            logger.print(Logger.LogLevel.INFO, null, String.join("", Collections.nCopies(separatorLength, "-")));
+             for (final var s : split) logger.print(Logger.LogLevel.INFO, null, s);
+-            logger.print(Logger.LogLevel.INFO, null, "-".repeat(separatorLength));
++            logger.print(Logger.LogLevel.INFO, null, String.join("", Collections.nCopies(separatorLength, "-")));
+ 
+             System.setProperty("faststats.first-run", "true");
+             return false;

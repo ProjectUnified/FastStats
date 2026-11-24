@@ -1,0 +1,143 @@
+--- a/core/src/main/java/dev/faststats/SubmissionService.java
++++ b/core/src/main/java/dev/faststats/SubmissionService.java
+@@ -6,29 +6,24 @@ import dev.faststats.internal.Logger;
+ 
+ import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
+ import java.net.ConnectException;
++import java.net.HttpURLConnection;
++import java.net.SocketTimeoutException;
+ import java.net.URI;
+ import java.net.URISyntaxException;
+-import java.net.http.HttpClient;
+-import java.net.http.HttpConnectTimeoutException;
+-import java.net.http.HttpRequest;
+-import java.net.http.HttpResponse;
+-import java.time.Duration;
+ import java.util.zip.GZIPOutputStream;
+ 
+ import static java.nio.charset.StandardCharsets.UTF_8;
+ 
+-abstract class SubmissionService {
+-    protected static final Duration TIMEOUT = Duration.ofSeconds(3);
+-    protected static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+-            .connectTimeout(TIMEOUT)
+-            .version(HttpClient.Version.HTTP_1_1)
+-            .build();
++public abstract class SubmissionService {
++    protected static final int TIMEOUT_MS = 3000;
+ 
+     protected final Logger logger;
+     protected final SimpleContext context;
+ 
+-    SubmissionService(final SimpleContext context) {
++    protected SubmissionService(final SimpleContext context) {
+         this.context = context;
+         this.logger = context.getLoggerFactory().getLogger(getClass());
+     }
+@@ -51,26 +46,54 @@ abstract class SubmissionService {
+             final String submissionName
+     ) {
+         try {
+-            final var compressed = compress(data.toString());
++            final byte[] compressed = compress(data.toString());
+             logger.info("Sending %s to: %s (%s bytes)\n%s", submissionName, url, compressed.length, data);
+ 
+-            final var response = HTTP_CLIENT.send(
+-                    createSubmissionRequest(url, compressed),
+-                    HttpResponse.BodyHandlers.ofString(UTF_8)
+-            );
+-
+-            if (isSuccessful(response)) {
+-                final var warnings = hasWarnings(response.body());
+-                final var level = warnings ? Logger.LogLevel.WARN : Logger.LogLevel.INFO;
+-                logger.debug(level, "%s submitted successfully with status code: %s (%s)", null,
+-                        capitalize(submissionName), response.statusCode(), response.body());
+-                return true;
++            final HttpURLConnection connection = (HttpURLConnection) url.toURL().openConnection();
++            try {
++                connection.setRequestMethod("POST");
++                connection.setConnectTimeout(TIMEOUT_MS);
++                connection.setReadTimeout(TIMEOUT_MS);
++                connection.setInstanceFollowRedirects(false);
++                connection.setUseCaches(false);
++                connection.setDoOutput(true);
++                connection.setFixedLengthStreamingMode(compressed.length);
++                connection.setRequestProperty("Content-Encoding", "gzip");
++                connection.setRequestProperty("Content-Type", "application/octet-stream");
++                connection.setRequestProperty("Authorization", "Bearer " + context.getToken());
++                connection.setRequestProperty("User-Agent", context.getSdkInfo().getUserAgent());
++                try (final OutputStream output = connection.getOutputStream()) {
++                    output.write(compressed);
++                }
++
++                final int statusCode = connection.getResponseCode();
++                final ByteArrayOutputStream bodyOutput = new ByteArrayOutputStream();
++                try (final InputStream input = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream()) {
++                    if (input != null) {
++                        final byte[] buffer = new byte[4096];
++                        int read;
++                        while ((read = input.read(buffer)) != -1) bodyOutput.write(buffer, 0, read);
++                    }
++                }
++                final String body = new String(bodyOutput.toByteArray(), UTF_8).trim();
++
++                if (statusCode >= 200 && statusCode < 300) {
++                    final boolean warnings = hasWarnings(body);
++                    final Logger.LogLevel level = warnings ? Logger.LogLevel.WARN : Logger.LogLevel.INFO;
++                    logger.debug(level, "%s submitted successfully with status code: %s (%s)", null,
++                            capitalize(submissionName), statusCode, body);
++                    return true;
++                }
++                logUnsuccessfulResponse(statusCode, body);
++            } finally {
++                connection.disconnect();
+             }
+-            logUnsuccessfulResponse(response);
+-        } catch (final HttpConnectTimeoutException t) {
+-            logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
+         } catch (final ConnectException t) {
+             logger.error("Failed to connect to %s server: %s", null, serverType(), url);
++        } catch (final SocketTimeoutException t) {
++            logger.error("%s submission timed out after 3 seconds: %s", null, capitalize(serverType()), url);
++        } catch (final IOException t) {
++            logger.error("Failed to submit %s", t, submissionName);
+         } catch (final Throwable t) {
+             logger.error("Failed to submit %s", t, submissionName);
+         }
+@@ -91,15 +114,7 @@ abstract class SubmissionService {
+         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
+     }
+ 
+-    protected static boolean isSuccessful(final HttpResponse<?> response) {
+-        final var statusCode = response.statusCode();
+-        return statusCode >= 200 && statusCode < 300;
+-    }
+-
+-    protected void logUnsuccessfulResponse(final HttpResponse<?> response) {
+-        final var statusCode = response.statusCode();
+-        final var body = response.body();
+-
++    private void logUnsuccessfulResponse(final int statusCode, final String body) {
+         if (statusCode >= 300 && statusCode < 400) {
+             logger.warn("Received redirect response from %s server: %s (%s)", serverType(), statusCode, body);
+         } else if (statusCode >= 400 && statusCode < 500) {
+@@ -119,16 +134,4 @@ abstract class SubmissionService {
+             return byteOutput.toByteArray();
+         }
+     }
+-
+-    private HttpRequest createSubmissionRequest(final URI url, final byte[] compressed) {
+-        return HttpRequest.newBuilder()
+-                .POST(HttpRequest.BodyPublishers.ofByteArray(compressed))
+-                .header("Content-Encoding", "gzip")
+-                .header("Content-Type", "application/octet-stream")
+-                .header("Authorization", "Bearer " + context.getToken())
+-                .header("User-Agent", context.getSdkInfo().getUserAgent())
+-                .timeout(TIMEOUT)
+-                .uri(url)
+-                .build();
+-    }
+ }

@@ -1,0 +1,28 @@
+--- a/core/src/main/java/dev/faststats/SimpleMetrics.java
++++ b/core/src/main/java/dev/faststats/SimpleMetrics.java
+@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Contract;
+ import org.jspecify.annotations.Nullable;
+ 
+ import java.net.URI;
++import java.util.Collections;
+ import java.util.HashSet;
+ import java.util.Set;
+ import java.util.concurrent.TimeUnit;
+@@ -27,7 +28,7 @@ public final class SimpleMetrics extends SubmissionService implements Metrics {
+     @Contract(mutates = "io")
+     private SimpleMetrics(final Factory factory) {
+         super(factory.context);
+-        this.metrics = Set.copyOf(factory.metrics);
++        this.metrics = Collections.unmodifiableSet(new HashSet<>(factory.metrics));
+         this.flush = factory.flush;
+     }
+ 
+@@ -70,7 +71,7 @@ public final class SimpleMetrics extends SubmissionService implements Metrics {
+                 });
+             } catch (final Throwable t) {
+                 logger.error("Failed to append custom metric data: %s", t, metric.getId());
+-                context.errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++                context.trackError(t);
+             }
+         });
+     }

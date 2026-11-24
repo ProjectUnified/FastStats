@@ -1,0 +1,42 @@
+--- /dev/null
++++ b/core/src/main/java/dev/faststats/FastStatsService.java
+@@ -0,0 +1,39 @@
++package dev.faststats;
++
++import org.jetbrains.annotations.ApiStatus;
++
++/**
++ * A service attached to a {@link FastStatsContext}.
++ * <p>
++ * Services are created from the factories added to
++ * {@link FastStatsContext.Builder#service(java.util.function.Function)} and follow the
++ * context lifecycle: {@link #onStart()} runs before the first submission task is scheduled,
++ * and {@link #onShutdown()} runs when the context is shut down.
++ * <p>
++ * Optional features such as error tracking and feature flags live in separate artifacts
++ * and are attached through this interface.
++ *
++ * @since 0.33.0
++ */
++@ApiStatus.Internal
++public interface FastStatsService {
++    /**
++     * Called when submission is started.
++     */
++    default void onStart() {
++    }
++
++    /**
++     * Called when the context is shut down.
++     */
++    default void onShutdown() {
++    }
++
++    /**
++     * Called when an internal FastStats error should be reported.
++     *
++     * @param error the error
++     */
++    default void onError(final Throwable error) {
++    }
++}

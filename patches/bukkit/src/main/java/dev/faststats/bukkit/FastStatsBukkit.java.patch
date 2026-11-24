@@ -1,0 +1,54 @@
+--- a/bukkit/src/main/java/dev/faststats/bukkit/FastStatsBukkit.java
++++ b/bukkit/src/main/java/dev/faststats/bukkit/FastStatsBukkit.java
+@@ -21,7 +21,7 @@ import java.util.function.Supplier;
+  * <pre>{@code
+  * private final FastStatsContext context = FastStatsBukkit.builder(this)
+  *         .metrics(Metrics.Factory::create)
+- *         .errorTrackerService(ErrorTracker.contextAware())
++ *         .service(ErrorTrackerService.create(ErrorTracker.contextAware()))
+  *         .build();
+  *
+  * @Override
+@@ -115,13 +115,15 @@ public final class FastStatsBukkit {
+             this.plugin = plugin;
+             final var server = plugin.getServer();
+ 
+-            this.serverVersion = server.getVersion().split("\\(MC: |\\)", 2)[0].strip();
++            this.serverVersion = server.getVersion().split("\\(MC: |\\)", 2)[0].trim();
+             this.pluginVersion = tryOrEmpty(() -> plugin.getPluginMeta().getVersion())
+                     .orElseGet(() -> plugin.getDescription().getVersion());
+-            this.minecraftVersion = tryOrEmpty(() -> server.getMinecraftVersion())
+-                    .or(() -> tryOrEmpty(() -> server.getBukkitVersion().split("-", 2)[0]))
+-                    .or(() -> tryOrEmpty(() -> server.getVersion().split("\\(MC: |\\)", 3)[1]))
+-                    .orElse(serverVersion);
++            Optional<String> minecraftVersion = tryOrEmpty(() -> server.getMinecraftVersion());
++            if (!minecraftVersion.isPresent())
++                minecraftVersion = tryOrEmpty(() -> server.getBukkitVersion().split("-", 2)[0]);
++            if (!minecraftVersion.isPresent())
++                minecraftVersion = tryOrEmpty(() -> server.getVersion().split("\\(MC: |\\)", 3)[1]);
++            this.minecraftVersion = minecraftVersion.orElse(serverVersion);
+             this.serverType = server.getName();
+         }
+ 
+@@ -136,9 +138,9 @@ public final class FastStatsBukkit {
+ 
+         private boolean checkOnlineMode() {
+             final var server = plugin.getServer();
+-            return tryOrEmpty(() -> server.getServerConfig().isProxyOnlineMode())
+-                    .or(() -> tryOrEmpty(this::isProxyOnlineMode))
+-                    .orElseGet(server::getOnlineMode);
++            Optional<Boolean> onlineMode = tryOrEmpty(() -> server.getServerConfig().isProxyOnlineMode());
++            if (!onlineMode.isPresent()) onlineMode = tryOrEmpty(this::isProxyOnlineMode);
++            return onlineMode.orElseGet(server::getOnlineMode);
+         }
+ 
+         @SuppressWarnings("removal")
+@@ -160,7 +162,7 @@ public final class FastStatsBukkit {
+                 return plugin.getServer().getOnlinePlayers().size();
+             } catch (final Throwable t) {
+                 context.getLoggerFactory().getLogger(FastStatsBukkit.class).error("Failed to get player count", t);
+-                context.errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++                context.trackError(t);
+                 return 0;
+             }
+         }

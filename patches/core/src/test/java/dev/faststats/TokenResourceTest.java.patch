@@ -1,0 +1,18 @@
+--- a/core/src/test/java/dev/faststats/TokenResourceTest.java
++++ b/core/src/test/java/dev/faststats/TokenResourceTest.java
+@@ -61,15 +61,11 @@ public final class TokenResourceTest {
+         final var context = new MockContext.Factory()
+                 .noToken()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
+                 .create();
+ 
+         assertFalse(context.isEnabled());
+         assertEquals("", context.getToken());
+         assertFalse(context.metrics().isPresent());
+-        assertFalse(context.errorTrackerService().isPresent());
+-        assertFalse(context.featureFlagService().isPresent());
+         assertDoesNotThrow(context::ready);
+         assertDoesNotThrow(context::shutdown);
+     }

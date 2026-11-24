@@ -36,15 +36,19 @@ this repository.
 ## Patch-based build
 
 No upstream `src/` tree is checked in. Module sources are generated from the pinned upstream commit in
-[`upstream.ref`](./upstream.ref), then patched with [Quilt](https://savannah.nongnu.org/projects/quilt)
-(`patches/` + `patches/series`; quilt state in `.pc/` and the upstream checkout in `.upstream/` are
-gitignored). The fork-owned `error-tracker`, `feature-flag` and `mod-platforms/fabric` sources are checked in
-and are not regenerated. Version mapping: the fork version is `<upstream-version>.<patch-number>` (currently `0.33.0.1`); `fork 0.33.0.1 == upstream 0.33.0 + patches/`.
+[`upstream.ref`](./upstream.ref) and copied into the matching Maven modules, then patched with
+[GitFile](https://github.com/ProjectUnified/GitFile): one patch per file under `patches/`, mirroring
+the module tree (no series, no apply order). The pristine baseline is `.vanilla/` and the pinned
+upstream checkout is `.upstream/` (both gitignored). The fork-owned `error-tracker`, `feature-flag`
+and `mod-platforms/fabric` sources are checked in and are not regenerated. Version mapping: the fork
+version is `<upstream-version>.<patch-number>` (currently `0.33.0.1`); `fork 0.33.0.1 == upstream 0.33.0 + patches/`.
 
-Prereqs: `git`, `quilt` 0.69+, JDK 25, Maven.
+Prereqs: `git`, JDK 25, Maven, and `gitfile`. On Arch Linux build the package from the GitFile
+repository (`cd packaging/arch/gitfile && makepkg -si`); elsewhere install it with
+`pipx install git+https://github.com/ProjectUnified/GitFile.git`.
 
 ```sh
-bash scripts/sync-upstream.sh && mvn clean install
+gitfile sync && mvn clean install
 ```
 
 `mvn install` (rather than `package`) puts `faststats-core` and `faststats-config` into the local
@@ -64,16 +68,17 @@ versions in [`stonecutter.properties.toml`](./mod-platforms/fabric/stonecutter.p
 
 | Task | Command |
 |---|---|
-| Edit a patch | `bash scripts/edit-patch.sh <NN-name>` (target stays applied on top) |
-| Regenerate + re-apply (`--continue` resumes after conflicts) | `bash scripts/finish-patch.sh <NN-name> [--continue]` |
-| Start a patch (next free `NN`, appended last; prefixes never reordered) | `bash scripts/new-patch.sh <NN-name>`, then edit, then finish |
-| Drop an empty patch | `quilt delete -r <NN-name>` |
-| Upgrade upstream | re-resolve `git ls-remote https://github.com/faststats-dev/faststats-java.git HEAD` into `upstream.ref`, then `bash scripts/sync-upstream.sh`, resolving failures via the edit/finish cycle |
+| Edit code | `gitfile sync`, edit any module source, then `gitfile update` |
+| Add a file | create it under a module `src/`, then `gitfile update` (writes a `/dev/null` patch) |
+| Delete a file | `rm` it, then `gitfile update` (writes a deletion patch) |
+| Drop a change | restore the file to its pristine content, then `gitfile update` (the patch is removed) |
+| Verify from scratch | `gitfile sync && mvn clean install` |
+| Export a combined patch for upstream | `gitfile export` (`faststats-fork.patch`) |
+| Upgrade upstream | re-resolve `git ls-remote https://github.com/faststats-dev/faststats-java.git HEAD` into `upstream.ref`, then `gitfile sync`; conflicting files get merge markers/`.rej`, resolve and run `gitfile update` |
 
-Rules: `quilt add` every file you will touch BEFORE editing or creating it (refresh only records
-tracked files; unrecorded edits are silently missed). Pushes use `--fuzz=0` (exact context); refresh
-uses `-p ab --no-timestamps --no-index` (stable `a/`/`b/` headers). Run the sync script again to
-restore a clean tree.
+Rules: edit the working tree, never the `.vanilla` baseline. `gitfile update` requires a successful
+`gitfile sync` (the `.vanilla/.gitfile-applied` marker). `gitfile sync` is the reset hatch and
+discards unrecorded working-tree edits.
 
 ## Java 8 downgrade
 

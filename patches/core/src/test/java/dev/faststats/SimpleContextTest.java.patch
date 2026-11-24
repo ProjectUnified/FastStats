@@ -1,0 +1,87 @@
+--- a/core/src/test/java/dev/faststats/SimpleContextTest.java
++++ b/core/src/test/java/dev/faststats/SimpleContextTest.java
+@@ -3,7 +3,6 @@ package dev.faststats;
+ import org.junit.jupiter.api.Test;
+ 
+ import java.util.UUID;
+-import java.util.concurrent.ExecutionException;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicInteger;
+ 
+@@ -25,8 +24,8 @@ public final class SimpleContextTest {
+         assertDoesNotThrow(() -> new MockContext.Factory()
+                 .allFeaturesDisabled()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .create()
+         );
+     }
+@@ -35,30 +34,16 @@ public final class SimpleContextTest {
+     public void firstRunAttachesServicesWithoutSubmitting() {
+         final var context = new MockContext.Factory()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .firstRun()
+                 .create();
+ 
+         assertTrue(context.metrics().isPresent());
+-        assertTrue(context.errorTrackerService().isPresent());
+-        assertTrue(context.featureFlagService().isPresent());
++        assertTrue(context.service(FastStatsService.class).isPresent());
+         assertFalse(context.isSubmitting());
+     }
+ 
+-    @Test
+-    public void featureFlagsResolveToDefaultWhileNotSubmitting() throws Exception {
+-        final var context = new MockContext.Factory()
+-                .featureFlagService(FeatureFlagService.Factory::create)
+-                .firstRun()
+-                .create();
+-        final var flag = context.featureFlagService().orElseThrow().define("test", true);
+-
+-        assertTrue(flag.fetch().get(1, TimeUnit.SECONDS));
+-        assertFalse(flag.getCached().isPresent());
+-        assertThrows(ExecutionException.class, () -> flag.optIn().get(1, TimeUnit.SECONDS));
+-    }
+-
+     @Test
+     public void submissionCanBeStartedAndStopped() {
+         final var context = new MockContext.Factory()
+@@ -88,13 +73,12 @@ public final class SimpleContextTest {
+     public void repeatedRunDoesAttachServices() {
+         final var context = new MockContext.Factory()
+                 .metrics(Metrics.Factory::create)
+-                .errorTrackerService(ErrorTracker.contextUnaware())
+-                .featureFlagService(FeatureFlagService.Factory::create)
++                .service(ctx -> new FastStatsService() {
++                })
+                 .create();
+ 
+         assertTrue(context.metrics().isPresent());
+-        assertTrue(context.errorTrackerService().isPresent());
+-        assertTrue(context.featureFlagService().isPresent());
++        assertTrue(context.service(FastStatsService.class).isPresent());
+         assertTrue(context.isSubmitting());
+     }
+ 
+@@ -147,7 +131,13 @@ public final class SimpleContextTest {
+                 .config(config(UUID.randomUUID(), true))
+                 .projectName("Mock")
+                 .token("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+-                .errorTrackerService(ErrorTracker.contextUnaware())
++                .service(ctx -> new FastStatsService() {
++                    @Override
++                    public void onStart() {
++                        ctx.scheduleAtFixedRate(() -> {
++                        }, 0, 1, TimeUnit.SECONDS);
++                    }
++                })
+                 .metrics(Metrics.Factory::create)
+                 .scheduler((task, initialDelay, period, unit) -> {
+                     // the error task is scheduled first, the metrics task is rejected

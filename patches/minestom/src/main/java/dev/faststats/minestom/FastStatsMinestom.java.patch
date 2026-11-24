@@ -1,0 +1,37 @@
+--- a/minestom/src/main/java/dev/faststats/minestom/FastStatsMinestom.java
++++ b/minestom/src/main/java/dev/faststats/minestom/FastStatsMinestom.java
+@@ -1,7 +1,5 @@
+ package dev.faststats.minestom;
+ 
+-import dev.faststats.ErrorTracker;
+-import dev.faststats.ErrorTrackerService;
+ import dev.faststats.FastStatsContext;
+ import dev.faststats.SimpleContext;
+ import dev.faststats.config.SimpleConfig;
+@@ -22,7 +20,7 @@ import java.nio.file.Path;
+  * final var server = MinecraftServer.init();
+  * final var context = FastStatsMinestom.builder()
+  *         .metrics(Metrics.Factory::create)
+- *         .errorTrackerService(ErrorTracker.contextAware())
++ *         .service(ErrorTrackerService.create(ErrorTracker.contextAware()))
+  *         .build();
+  * MinecraftServer.getSchedulerManager().buildShutdownTask(context::shutdown);
+  * server.start("0.0.0.0", 25565);
+@@ -93,13 +91,10 @@ public final class FastStatsMinestom {
+     }
+ 
+     private static void registerExceptionHandler(final FastStatsContext context) {
+-        context.errorTrackerService().map(ErrorTrackerService::globalErrorTracker).ifPresent(errorTracker -> {
+-            final var handler = MinecraftServer.getExceptionManager().getExceptionHandler();
+-            MinecraftServer.getExceptionManager().setExceptionHandler(error -> {
+-                handler.handleException(error);
+-                if (!ErrorTracker.isSameLoader(FastStatsMinestom.class.getClassLoader(), error)) return;
+-                errorTracker.trackError(error);
+-            });
++        final var handler = MinecraftServer.getExceptionManager().getExceptionHandler();
++        MinecraftServer.getExceptionManager().setExceptionHandler(error -> {
++            handler.handleException(error);
++            context.trackError(error);
+         });
+     }
+ }

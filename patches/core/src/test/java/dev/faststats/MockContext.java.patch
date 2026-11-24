@@ -1,0 +1,18 @@
+--- a/core/src/test/java/dev/faststats/MockContext.java
++++ b/core/src/test/java/dev/faststats/MockContext.java
+@@ -55,13 +55,8 @@ public final class MockContext {
+             return this;
+         }
+ 
+-        public Factory errorTrackerService(final ErrorTracker errorTracker) {
+-            builder.errorTrackerService(errorTracker);
+-            return this;
+-        }
+-
+-        public Factory featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            builder.featureFlagService(featureFlagService);
++        public Factory service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            builder.service(service);
+             return this;
+         }
+ 

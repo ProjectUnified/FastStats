@@ -1,0 +1,256 @@
+--- a/core/src/main/java/dev/faststats/SimpleContext.java
++++ b/core/src/main/java/dev/faststats/SimpleContext.java
+@@ -8,9 +8,11 @@ import org.jetbrains.annotations.Async;
+ import org.jetbrains.annotations.Contract;
+ import org.jspecify.annotations.Nullable;
+ 
++import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
+ import java.io.UncheckedIOException;
+ import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.List;
+ import java.util.Optional;
+ import java.util.Properties;
+@@ -64,8 +66,7 @@ public final class SimpleContext implements FastStatsContext {
+     private volatile boolean submitting = false;
+ 
+     private final @Nullable SimpleMetrics metrics;
+-    private final @Nullable SimpleFeatureFlagService featureFlagService;
+-    private final @Nullable SimpleErrorTrackerService errorTrackerService;
++    private final List<FastStatsService> services;
+ 
+     private SimpleContext(final Builder builder, @Token final @Nullable String token) {
+         this.loggerFactory = require(builder.loggerFactory, "loggerFactory");
+@@ -80,8 +81,8 @@ public final class SimpleContext implements FastStatsContext {
+         this.clientApplication = builder.clientApplication;
+         this.scheduler = builder.scheduler;
+         this.defaultMetrics = builder.defaultMetrics;
+-        this.readyHooks = List.copyOf(builder.readyHooks);
+-        this.shutdownHooks = List.copyOf(builder.shutdownHooks);
++        this.readyHooks = Collections.unmodifiableList(new ArrayList<>(builder.readyHooks));
++        this.shutdownHooks = Collections.unmodifiableList(new ArrayList<>(builder.shutdownHooks));
+ 
+         if (!enabled) {
+             logger.warn("No valid FastStats token provided for %s, FastStats is disabled. Pass a token to the factory or inject it at build time into %s",
+@@ -91,19 +92,19 @@ public final class SimpleContext implements FastStatsContext {
+         this.metrics = enabled && builder.metrics != null
+                 ? (SimpleMetrics) builder.metrics.apply(new SimpleMetrics.Factory(this))
+                 : null;
+-        this.errorTrackerService = enabled && builder.errorTracker != null
+-                ? new SimpleErrorTrackerService(this, builder.errorTracker)
+-                : null;
+-        this.featureFlagService = enabled && builder.featureFlagService != null
+-                ? (SimpleFeatureFlagService) builder.featureFlagService.apply(new SimpleFeatureFlagService.Factory(this))
+-                : null;
++        final List<FastStatsService> services = new ArrayList<>(builder.services.size());
++        if (enabled) {
++            for (final Function<SimpleContext, ? extends FastStatsService> factory : builder.services) {
++                services.add(factory.apply(this));
++            }
++        }
++        this.services = Collections.unmodifiableList(new ArrayList<>(services));
+ 
+         if (enabled) {
+-            logger.info("Created FastStats context for %s using %s (metrics=%s, error-tracking=%s, feature-flags=%s)",
++            logger.info("Created FastStats context for %s using %s (metrics=%s, services=%s)",
+                     projectName, sdkInfo.getUserAgent(),
+                     metrics != null ? "yes" : "no",
+-                    errorTrackerService != null ? "yes" : "no",
+-                    featureFlagService != null ? "yes" : "no"
++                    services.size()
+             );
+         }
+     }
+@@ -178,17 +179,26 @@ public final class SimpleContext implements FastStatsContext {
+ 
+     @Override
+     @Contract(pure = true)
+-    public Optional<FeatureFlagService> featureFlagService() {
+-        return Optional.ofNullable(featureFlagService);
++    public <T extends FastStatsService> Optional<T> service(final Class<T> serviceClass) {
++        for (final FastStatsService service : services) {
++            if (serviceClass.isInstance(service)) return Optional.of(serviceClass.cast(service));
++        }
++        return Optional.empty();
+     }
+ 
+     @Override
+-    @Contract(pure = true)
+-    public Optional<ErrorTrackerService> errorTrackerService() {
+-        return Optional.ofNullable(errorTrackerService);
++    public void trackError(final Throwable error) {
++        for (final FastStatsService service : services) {
++            try {
++                service.onError(error);
++            } catch (final Throwable t) {
++                logger.error("Failed to track error in service %s", t, service.getClass().getName());
++            }
++        }
+     }
+ 
+-    boolean isSubmitting() {
++    @ApiStatus.Internal
++    public boolean isSubmitting() {
+         return submitting;
+     }
+ 
+@@ -209,7 +219,7 @@ public final class SimpleContext implements FastStatsContext {
+     public synchronized void startSubmission() {
+         if (!enabled || submitting) return;
+         try {
+-            if (errorTrackerService != null) errorTrackerService.startErrorSubmission();
++            for (final FastStatsService service : services) service.onStart();
+             if (metrics != null) metrics.startSubmitting();
+             this.submitting = true;
+         } catch (final Throwable t) {
+@@ -276,7 +286,8 @@ public final class SimpleContext implements FastStatsContext {
+      * Used by both metrics and error reports, so the platform data is present
+      * even when no metrics instance is configured.
+      */
+-    void appendPlatformData(final JsonObject metrics) {
++    @ApiStatus.Internal
++    public void appendPlatformData(final JsonObject metrics) {
+         metrics.addProperty("client", clientApplication);
+         metrics.addProperty("core_count", coreCount);
+         metrics.addProperty("java_vendor", javaVendor);
+@@ -287,12 +298,25 @@ public final class SimpleContext implements FastStatsContext {
+         appendDefaultMetrics(metrics);
+     }
+ 
++    /**
++     * Appends the custom metrics data to the given object.
++     * <p>
++     * Used by optional services that need the metrics data outside the metrics payload,
++     * such as error reports.
++     *
++     * @param metrics the object to append the data to
++     */
++    @ApiStatus.Internal
++    public void appendCustomMetrics(final JsonObject metrics) {
++        if (this.metrics != null) this.metrics.appendCustomData(metrics);
++    }
++
+     private void appendDefaultMetrics(final JsonObject metrics) {
+         try {
+             if (defaultMetrics != null) defaultMetrics.accept(this, metrics);
+         } catch (final Throwable t) {
+             logger.error("Failed to append default metric data", t);
+-            errorTrackerService().ifPresent(service -> service.globalErrorTracker().trackError(t));
++            trackError(t);
+         }
+     }
+ 
+@@ -306,8 +330,8 @@ public final class SimpleContext implements FastStatsContext {
+             try {
+                 hook.accept(this);
+             } catch (final Throwable t) {
+-                logger.print(Logger.LogLevel.ERROR, t, "Failed to make the FastStats context for %s ready: %s"
+-                        .formatted(projectName, t.getMessage()));
++                logger.print(Logger.LogLevel.ERROR, t, String.format(
++                        "Failed to make the FastStats context for %s ready: %s", projectName, t.getMessage()));
+                 return;
+             }
+         }
+@@ -315,7 +339,8 @@ public final class SimpleContext implements FastStatsContext {
+     }
+ 
+     @Async.Schedule
+-    void scheduleAtFixedRate(final Runnable task, final long initialDelay, final long period, final TimeUnit unit) {
++    @ApiStatus.Internal
++    public void scheduleAtFixedRate(final Runnable task, final long initialDelay, final long period, final TimeUnit unit) {
+         if (scheduler != null) {
+             cancellations.add(scheduler.scheduleAtFixedRate(task, initialDelay, period, unit));
+             return;
+@@ -334,8 +359,13 @@ public final class SimpleContext implements FastStatsContext {
+     @Override
+     public void shutdown() {
+         // flushes pending data if submission is active
+-        if (errorTrackerService != null) errorTrackerService.shutdown();
+-        if (featureFlagService != null) featureFlagService.shutdown();
++        for (final FastStatsService service : services) {
++            try {
++                service.onShutdown();
++            } catch (final Throwable t) {
++                logger.error("Failed to shut down service %s", t, service.getClass().getName());
++            }
++        }
+         if (metrics != null) metrics.shutdown();
+         stopSubmission();
+         this.ready = false;
+@@ -383,7 +413,11 @@ public final class SimpleContext implements FastStatsContext {
+         final var path = TOKEN_RESOURCE_DIRECTORY + id + ".token";
+         try (final var stream = loader.getResourceAsStream(path)) {
+             if (stream == null) return null;
+-            final var token = new String(stream.readAllBytes(), UTF_8).strip();
++            final ByteArrayOutputStream output = new ByteArrayOutputStream();
++            final byte[] buffer = new byte[1024];
++            int read;
++            while ((read = stream.read(buffer)) != -1) output.write(buffer, 0, read);
++            final String token = new String(output.toByteArray(), UTF_8).trim();
+             return token.matches(Token.PATTERN) ? token : null;
+         } catch (final IOException e) {
+             return null;
+@@ -500,19 +534,14 @@ public final class SimpleContext implements FastStatsContext {
+         }
+ 
+         @Override
+-        public ConsentBuilder errorTrackerService(final ErrorTracker errorTracker) {
+-            return (ConsentBuilder) super.errorTrackerService(errorTracker);
++        public ConsentBuilder service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            return (ConsentBuilder) super.service(service);
+         }
+ 
+         @Override
+         public ConsentBuilder metrics(final Function<Metrics.Factory, Metrics> metrics) {
+             return (ConsentBuilder) super.metrics(metrics);
+         }
+-
+-        @Override
+-        public ConsentBuilder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            return (ConsentBuilder) super.featureFlagService(featureFlagService);
+-        }
+     }
+ 
+     /**
+@@ -542,8 +571,7 @@ public final class SimpleContext implements FastStatsContext {
+         private final List<Consumer<SimpleContext>> buildHooks = new ArrayList<>(1);
+ 
+         private @Nullable Function<Metrics.Factory, Metrics> metrics;
+-        private @Nullable Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService;
+-        private @Nullable ErrorTracker errorTracker;
++        private final List<Function<SimpleContext, ? extends FastStatsService>> services = new ArrayList<>(1);
+ 
+         /**
+          * Creates a new context builder.
+@@ -695,8 +723,8 @@ public final class SimpleContext implements FastStatsContext {
+ 
+         @Override
+         @Contract(value = "_ -> this", mutates = "this")
+-        public Builder errorTrackerService(final ErrorTracker errorTracker) {
+-            this.errorTracker = errorTracker;
++        public Builder service(final Function<SimpleContext, ? extends FastStatsService> service) {
++            this.services.add(service);
+             return this;
+         }
+ 
+@@ -707,18 +735,11 @@ public final class SimpleContext implements FastStatsContext {
+             return this;
+         }
+ 
+-        @Override
+-        @Contract(value = "_ -> this", mutates = "this")
+-        public Builder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService) {
+-            this.featureFlagService = featureFlagService;
+-            return this;
+-        }
+-
+         @Override
+         @Contract(value = " -> new", mutates = "io")
+         @SuppressWarnings("PatternValidation")
+         public SimpleContext build() throws IllegalArgumentException, IllegalStateException, UncheckedIOException {
+-            if (metrics == null && errorTracker == null && featureFlagService == null)
++            if (metrics == null && services.isEmpty())
+                 throw new IllegalStateException("Context created without any service attached, was this intentional?");
+             if (token != null && !token.matches(Token.PATTERN))
+                 throw new IllegalArgumentException("Invalid token '" + token + "', must match '" + Token.PATTERN + "'");

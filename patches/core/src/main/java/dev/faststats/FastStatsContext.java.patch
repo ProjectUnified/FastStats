@@ -1,0 +1,104 @@
+--- a/core/src/main/java/dev/faststats/FastStatsContext.java
++++ b/core/src/main/java/dev/faststats/FastStatsContext.java
+@@ -11,8 +11,8 @@ import java.util.function.Function;
+ /**
+  * Shared FastStats context.
+  * <p>
+- * A context provides a shared configuration, token, metrics, feature flag service,
+- * and error tracker service for a project.
++ * A context provides a shared configuration, token, metrics and optional services
++ * for a project.
+  * Platforms create contexts by configuring a {@link SimpleContext.Builder}.
+  *
+  * @since 0.24.0
+@@ -47,22 +47,26 @@ public sealed interface FastStatsContext permits SimpleContext {
+     Optional<Metrics> metrics();
+ 
+     /**
+-     * Gets the feature flag service bound to this context.
++     * Gets a service attached to this context by type.
++     * <p>
++     * Optional features such as error tracking and feature flags are separate artifacts;
++     * add their factory with {@link Builder#service(java.util.function.Function)}.
+      *
+-     * @return the context feature flag service, if one was configured
+-     * @since 0.24.0
++     * @param serviceClass the service type
++     * @param <T>          the service type
++     * @return the service, if one was configured
++     * @since 0.33.0
+      */
+     @Contract(pure = true)
+-    Optional<FeatureFlagService> featureFlagService();
++    <T extends FastStatsService> Optional<T> service(Class<T> serviceClass);
+ 
+     /**
+-     * Gets the error tracker service bound to this context.
++     * Reports an internal error to the attached services.
+      *
+-     * @return the context error tracker service, if one was configured
+-     * @since 0.24.0
++     * @param error the error
++     * @since 0.33.0
+      */
+-    @Contract(pure = true)
+-    Optional<ErrorTrackerService> errorTrackerService();
++    void trackError(Throwable error);
+ 
+     /**
+      * Performs additional post-startup tasks for configured context services.
+@@ -132,13 +136,10 @@ public sealed interface FastStatsContext permits SimpleContext {
+         ConsentBuilder onShutdown(Consumer<FastStatsContext> hook);
+ 
+         @Override
+-        ConsentBuilder errorTrackerService(ErrorTracker errorTracker);
++        ConsentBuilder service(Function<SimpleContext, ? extends FastStatsService> service);
+ 
+         @Override
+         ConsentBuilder metrics(Function<Metrics.Factory, Metrics> metrics);
+-
+-        @Override
+-        ConsentBuilder featureFlagService(Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService);
+     }
+ 
+     /**
+@@ -188,14 +189,18 @@ public sealed interface FastStatsContext permits SimpleContext {
+         Builder onShutdown(final Consumer<FastStatsContext> hook);
+ 
+         /**
+-         * Configures the global/internal error tracker for the context.
++         * Adds an optional service to the context.
++         * <p>
++         * The factory receives the created context, so the service can use its logger,
++         * configuration, scheduler and submission helpers. Services are started before the
++         * metrics submission task and shut down before the metrics are flushed.
+          *
+-         * @param errorTracker the global/internal error tracker
++         * @param service the service factory
+          * @return this builder
+-         * @since 0.24.0
++         * @since 0.33.0
+          */
+         @Contract(value = "_ -> this", mutates = "this")
+-        Builder errorTrackerService(final ErrorTracker errorTracker);
++        Builder service(final Function<SimpleContext, ? extends FastStatsService> service);
+ 
+         /**
+          * Configures and creates the single metrics instance for the context.
+@@ -207,16 +212,6 @@ public sealed interface FastStatsContext permits SimpleContext {
+         @Contract(value = "_ -> this", mutates = "this")
+         Builder metrics(final Function<Metrics.Factory, Metrics> metrics);
+ 
+-        /**
+-         * Configures and creates the single feature flag service instance for the context.
+-         *
+-         * @param featureFlagService a function that receives a new service factory and returns the built service instance
+-         * @return this builder
+-         * @since 0.24.0
+-         */
+-        @Contract(value = "_ -> this", mutates = "this")
+-        Builder featureFlagService(final Function<FeatureFlagService.Factory, FeatureFlagService> featureFlagService);
+-
+         /**
+          * Builds the configured context.
+          *
